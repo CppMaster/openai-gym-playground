@@ -2,13 +2,14 @@ import gym
 import numpy as np
 from keras.layers import Dense
 from keras.models import Sequential
+from keras.optimizer_v2.adam import Adam
 
 x_obs_arr = []
 x_action_arr = []
 y_reward_arr = []
 
-n_simulations = 100
-max_step = 1000
+n_simulations = 100000
+max_step = 200
 
 env = gym.make('CartPole-v0')
 
@@ -37,8 +38,8 @@ model = Sequential([
     Dense(units=4, activation="relu"),
     Dense(units=1, activation="relu")
 ])
-model.compile("adam", "mse")
-model.fit(x, y_reward, batch_size=100, epochs=1000)
+model.compile(Adam(lr=0.0001), "mse")
+model.fit(x, y_reward, batch_size=100, epochs=100)
 model.save("temp/cartpole.h5")
 
 # model = load_model("temp/cartpole.h5")
