@@ -44,6 +44,7 @@ model = Sequential([
 ])
 model.compile("adam", "mse")
 
+
 def create_training_data():
     x_obs = np.array(x_obs_arr)
     x_action = np.array(x_action_arr)
@@ -53,6 +54,7 @@ def create_training_data():
 
 x, y = create_training_data()
 model.fit(x, y, batch_size=50, epochs=epochs, verbose=0)
+
 
 def score_model():
 
