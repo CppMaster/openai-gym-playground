@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 import gym
 import numpy as np
@@ -13,22 +13,30 @@ x_obs_arr = []
 x_action_arr = []
 y_reward_arr = []
 
-n_warmup_sim = 2000
+n_warmup_sim = 1000000
+min_pos_episodes = 20
+at_most_n_neg_episodes_per_pos = 1
 n_incremental_sim = 10
-max_step = 1000
+max_step = 200
 extreme_action_chance = 1.0
 keep_n_simulations = 100
 trainings_steps = 20
 score_n_simulations = 5
 chance_for_random = 0.5
-epochs = 1000
+epochs = 10000
 batch_size = 20
-render_every_n_step = 5
+render_every_n_step: Union[None, int] = None
+score_every_n_epochs = 200
+min_delta = 0.1
+monitor = "loss"
+
 
 env = gym.make('MountainCarContinuous-v0')
 
 
 def try_reject_episode(obs: List[np.ndarray]) -> bool:
+
+    return False
 
     max_speeds: List[float] = list()
     curr_max_speed = 0.0
@@ -62,9 +70,9 @@ def try_reject_episode(obs: List[np.ndarray]) -> bool:
     return False
 
 
-
-
 # Warm up
+pos_episodes = 0
+neg_episodes = 0
 for i_episode in tqdm(range(n_warmup_sim)):
     observation = env.reset()
     total_reward = 0
@@ -88,6 +96,17 @@ for i_episode in tqdm(range(n_warmup_sim)):
         x_obs_arr.extend(observations)
         x_action_arr.extend(actions)
         y_reward_arr.extend([[total_reward]] * len(observations))
+        pos_episodes += 1
+        print(f"Successful episode {pos_episodes}/{min_pos_episodes} with reward: {total_reward}")
+        if pos_episodes >= min_pos_episodes:
+            break
+    elif neg_episodes < at_most_n_neg_episodes_per_pos * (pos_episodes + 1):
+        x_obs_arr.extend(observations)
+        x_action_arr.extend(actions)
+        y_reward_arr.extend([[total_reward]] * len(observations))
+        neg_episodes += 1
+
+print(f"Successful episodes: {pos_episodes}")
 
 value_model = Sequential([
     Dense(units=8, input_dim=env.observation_space.shape[0] + env.action_space.shape[0], activation="relu"),
@@ -119,7 +138,7 @@ def score_model():
 
             observations.append(observation)
             if try_reject_episode(observations):
-                total_reward = -100.0
+                total_reward = -20.0
                 break
 
             x_action = np.concatenate([np.array([observation, observation]), np.array([[-1.0], [1.0]])], axis=1)
@@ -141,7 +160,7 @@ def score_model():
     return score
 
 
-score_model()
+# score_model()
 
 
 class ScoreModel(Callback):
@@ -153,13 +172,10 @@ class ScoreModel(Callback):
         if (epoch + 1) % self.period == 0:
             score_model()
 
-
-min_delta = 0.0001
-monitor = "loss"
 callbacks = [
-    ReduceLROnPlateau(patience=10, min_delta=min_delta, monitor=monitor),
-    EarlyStopping(patience=30, min_delta=min_delta, monitor=monitor),
-    ScoreModel(period=10)
+    ReduceLROnPlateau(patience=10, min_delta=min_delta, monitor=monitor, verbose=1),
+    EarlyStopping(patience=30, min_delta=min_delta, monitor=monitor, verbose=1),
+    ScoreModel(period=score_every_n_epochs)
 ]
 value_model.fit(x, y, batch_size=batch_size, epochs=epochs, verbose=2, callbacks=callbacks)
 
