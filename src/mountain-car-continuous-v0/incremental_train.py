@@ -1,3 +1,4 @@
+import pickle
 from typing import List, Union
 
 import gym
@@ -9,10 +10,10 @@ from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
 from tqdm import tqdm
 
 n_warmup_sim = 1000000
-min_pos_episodes = 20
+min_pos_episodes = 50
 at_most_n_neg_episodes_per_pos = 1
 n_policy_sim = 10
-n_policy_samples = 0
+n_policy_samples = 2000
 max_step = 200
 extreme_action_chance = 1.0
 keep_n_simulations = 100
@@ -121,7 +122,13 @@ def get_warmup_dataset():
     return x_obs_arr, x_action_arr, y_reward_arr
 
 
-# x_obs_arr, x_action_arr, y_reward_arr = get_warmup_dataset()
+x_obs_arr, x_action_arr, y_reward_arr = get_warmup_dataset()
+x_obs_arr.extend(pickle.load(open("temp/x_obs_arr.p", "rb")))
+x_action_arr.extend(pickle.load(open("temp/x_action_arr.p", "rb")))
+y_reward_arr.extend(pickle.load(open("temp/y_reward_arr.p", "rb")))
+pickle.dump(x_obs_arr, open("temp/x_obs_arr.p", "wb"))
+pickle.dump(x_action_arr, open("temp/x_action_arr.p", "wb"))
+pickle.dump(y_reward_arr, open("temp/y_reward_arr.p", "wb"))
 
 
 def create_training_data():
@@ -132,7 +139,7 @@ def create_training_data():
     return np.concatenate([x_obs, x_action], axis=1), y_reward
 
 
-# x, y = create_training_data()
+x, y = create_training_data()
 
 
 def get_value_model():
@@ -144,7 +151,8 @@ def get_value_model():
     value_model.compile(Adam(learning_rate=0.0001), "mse")
     return value_model
 
-# value_model = get_value_model()
+
+value_model = get_value_model()
 
 
 def score_value_model():
@@ -198,8 +206,8 @@ value_callbacks = [
     EarlyStopping(patience=30, min_delta=min_delta_value, monitor=monitor, verbose=1),
     ScoreValueModel(period=score_every_n_epochs)
 ]
-# value_model.fit(x, y, batch_size=batch_size, epochs=epochs, verbose=2, callbacks=callbacks)
-value_model: Model = load_model("temp/car_value-model.h5")
+value_model.fit(x, y, batch_size=batch_size, epochs=epochs, verbose=2, callbacks=value_callbacks)
+# value_model: Model = load_model("temp/car_value-model.h5")
 # score_value_model()
 
 
@@ -226,7 +234,8 @@ def get_policy_dataset():
         observation = env.reset()
         for t in range(max_step):
 
-            query_actions = [env.action_space.sample() for _ in range(sample_n_actions)]
+            query_actions = [env.action_space.sample() for _ in range(sample_n_actions)] \
+                            + [np.array([-1.0]), [np.array([1.0])]]
             query = np.array([np.concatenate([observation, query_actions[i]]) for i in range(sample_n_actions)])
             pred = value_model.predict(query, batch_size=sample_n_actions)
             best_action = query_actions[np.argmax(pred, axis=0)[0]]
@@ -240,7 +249,8 @@ def get_policy_dataset():
         observations = [env.observation_space.sample() for _ in range(n_policy_samples)]
         random_query = []
         for s_i in range(n_policy_samples):
-            query_actions = [env.action_space.sample() for _ in range(sample_n_actions)]
+            query_actions = [env.action_space.sample() for _ in range(sample_n_actions)] \
+                            + [np.array([-1.0]), [np.array([1.0])]]
             observation = observations[s_i]
             query = [np.concatenate([observation, query_actions[i]]) for i in range(sample_n_actions)]
             random_query.extend(query)
@@ -260,6 +270,10 @@ def get_policy_dataset():
 
 
 xq_obs_arr, yq_action_arr = get_policy_dataset()
+xq_obs_arr.extend(pickle.load(open("temp/xq_obs_arr.p", "rb")))
+yq_action_arr.extend(pickle.load(open("temp/yq_action_arr.p", "rb")))
+pickle.dump(xq_obs_arr, open("temp/xq_obs_arr.p", "wb"))
+pickle.dump(yq_action_arr, open("temp/yq_action_arr.p", "wb"))
 
 
 def score_policy_model():
