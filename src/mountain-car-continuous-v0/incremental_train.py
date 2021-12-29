@@ -1,3 +1,4 @@
+import os.path
 import pickle
 from typing import List, Union
 
@@ -9,6 +10,8 @@ from keras.optimizer_v2.adam import Adam
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
 import tensorflow as tf
 from tqdm import tqdm
+
+from src.utils.gpu import set_memory_growth
 
 n_warmup_sim = 1000000
 min_pos_episodes = 50
@@ -33,9 +36,7 @@ monitor = "loss"
 reject_episode = False
 
 
-physical_devices = tf.config.list_physical_devices('GPU')
-for gpu_instance in physical_devices:
-    tf.config.experimental.set_memory_growth(gpu_instance, True)
+set_memory_growth()
 
 env = gym.make('MountainCarContinuous-v0')
 obs_size = env.observation_space.shape[0]
@@ -91,6 +92,10 @@ def get_warmup_dataset():
     pos_episodes = 0
     neg_episodes = 0
     for i_episode in tqdm(range(n_warmup_sim)):
+
+        if pos_episodes >= min_pos_episodes:
+            break
+
         observation = env.reset()
         total_reward = 0
         t = 0
@@ -219,6 +224,7 @@ value_callbacks = [
     ScoreValueModel(period=score_every_n_epochs)
 ]
 value_model.fit(x, y, batch_size=batch_size, epochs=epochs, verbose=2, callbacks=value_callbacks)
+value_model.save("temp/car_value-model.h5")
 # value_model: Model = load_model("temp/car_value-model.h5")
 # score_value_model()
 
@@ -338,5 +344,6 @@ policy_model.fit(
     np.array(xq_obs_arr), np.array(yq_action_arr), batch_size=batch_size, epochs=epochs, verbose=2,
     callbacks=policy_callbacks
 )
+policy_model.save("temp/car_policy-model.h5")
 
 score_policy_model()

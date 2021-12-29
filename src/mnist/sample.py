@@ -5,6 +5,7 @@ Date created: 2015/06/19
 Last modified: 2020/04/21
 Description: A simple convnet that achieves ~99% test accuracy on MNIST.
 """
+from src.utils.gpu import set_memory_growth
 
 """
 ## Setup
@@ -19,9 +20,7 @@ import tensorflow as tf
 ## Prepare the data
 """
 
-physical_devices = tf.config.list_physical_devices('GPU')
-for gpu_instance in physical_devices:
-    tf.config.experimental.set_memory_growth(gpu_instance, True)
+set_memory_growth()
 
 
 # Model / data parameters
