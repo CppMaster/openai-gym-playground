@@ -13,10 +13,16 @@ Description: A simple convnet that achieves ~99% test accuracy on MNIST.
 import numpy as np
 from tensorflow import keras
 from tensorflow.keras import layers
+import tensorflow as tf
 
 """
 ## Prepare the data
 """
+
+physical_devices = tf.config.list_physical_devices('GPU')
+for gpu_instance in physical_devices:
+    tf.config.experimental.set_memory_growth(gpu_instance, True)
+
 
 # Model / data parameters
 num_classes = 10
@@ -55,8 +61,8 @@ model = keras.Sequential(
         keras.Input(shape=input_shape),
         layers.Conv2D(32, kernel_size=(3, 3), activation="relu"),
         layers.MaxPooling2D(pool_size=(2, 2)),
-        # layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
-        # layers.MaxPooling2D(pool_size=(2, 2)),
+        layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
+        layers.MaxPooling2D(pool_size=(2, 2)),
         layers.Flatten(),
         layers.Dropout(0.5),
         layers.Dense(num_classes, activation="softmax"),
@@ -69,8 +75,8 @@ model.summary()
 ## Train the model
 """
 
-batch_size = 100
-epochs = 15
+batch_size = 1000
+epochs = 1500
 
 model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=["accuracy"])
 

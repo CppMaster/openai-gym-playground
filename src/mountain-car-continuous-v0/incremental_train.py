@@ -7,6 +7,7 @@ from keras.layers import Dense
 from keras.models import Sequential, load_model, Model
 from keras.optimizer_v2.adam import Adam
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
+import tensorflow as tf
 from tqdm import tqdm
 
 n_warmup_sim = 1000000
@@ -22,6 +23,7 @@ sample_n_actions = 20
 score_n_simulations = 5
 chance_for_random = 0.5
 epochs = 10000
+value_model_lr = 1e-5
 batch_size = 20
 render_every_n_step: Union[None, int] = None
 score_every_n_epochs = 200
@@ -30,6 +32,10 @@ min_delta_policy = 0.0001
 monitor = "loss"
 reject_episode = False
 
+
+physical_devices = tf.config.list_physical_devices('GPU')
+for gpu_instance in physical_devices:
+    tf.config.experimental.set_memory_growth(gpu_instance, True)
 
 env = gym.make('MountainCarContinuous-v0')
 obs_size = env.observation_space.shape[0]
@@ -122,13 +128,19 @@ def get_warmup_dataset():
     return x_obs_arr, x_action_arr, y_reward_arr
 
 
+def extend_and_save_arr(arr: List, path: str):
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            arr.extend(pickle.load(f))
+    pickle.dump(arr, open(path, "wb"))
+
+
 x_obs_arr, x_action_arr, y_reward_arr = get_warmup_dataset()
-x_obs_arr.extend(pickle.load(open("temp/x_obs_arr.p", "rb")))
-x_action_arr.extend(pickle.load(open("temp/x_action_arr.p", "rb")))
-y_reward_arr.extend(pickle.load(open("temp/y_reward_arr.p", "rb")))
-pickle.dump(x_obs_arr, open("temp/x_obs_arr.p", "wb"))
-pickle.dump(x_action_arr, open("temp/x_action_arr.p", "wb"))
-pickle.dump(y_reward_arr, open("temp/y_reward_arr.p", "wb"))
+
+os.makedirs("temp", exist_ok=True)
+extend_and_save_arr(x_obs_arr, "temp/x_obs_arr.p")
+extend_and_save_arr(x_action_arr, "temp/x_action_arr.p")
+extend_and_save_arr(y_reward_arr, "temp/y_reward_arr.p")
 
 
 def create_training_data():
@@ -148,7 +160,7 @@ def get_value_model():
         Dense(units=4, activation="relu"),
         Dense(units=1, activation="relu")
     ])
-    value_model.compile(Adam(learning_rate=0.0001), "mse")
+    value_model.compile(Adam(learning_rate=value_model_lr), "mse")
     return value_model
 
 
@@ -270,10 +282,8 @@ def get_policy_dataset():
 
 
 xq_obs_arr, yq_action_arr = get_policy_dataset()
-xq_obs_arr.extend(pickle.load(open("temp/xq_obs_arr.p", "rb")))
-yq_action_arr.extend(pickle.load(open("temp/yq_action_arr.p", "rb")))
-pickle.dump(xq_obs_arr, open("temp/xq_obs_arr.p", "wb"))
-pickle.dump(yq_action_arr, open("temp/yq_action_arr.p", "wb"))
+extend_and_save_arr(xq_obs_arr, "temp/xq_obs_arr.p")
+extend_and_save_arr(yq_action_arr, "temp/yq_action_arr.p")
 
 
 def score_policy_model():
