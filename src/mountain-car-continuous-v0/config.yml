@@ -1,0 +1,32 @@
+env:
+  name: MountainCarContinuous-v0
+  max_step: 200
+
+value:
+  n_sim: 1000000
+  min_pos_episodes: 50
+  at_most_n_neg_episodes_per_pos: 1.0
+  extreme_action_chance: 1.0
+  epochs: 10000
+  lr: 1.e-5
+  min_delta: 1.e-5
+  monitor: loss
+  label_scale: 1.e-2
+  batch_size: 50
+  score_period: 200
+
+policy:
+  n_sim: 100
+  n_policy_samples: 20000
+  n_action_samples: 20
+  epochs: 10000
+  lr: 1.e-5
+  min_delta: 1.e-5
+  monitor: loss
+  batch_size: 50
+  score_period: 200
+
+eval:
+  n_sim: 5
+  render_every_n_step: null # Optional[Int]
+

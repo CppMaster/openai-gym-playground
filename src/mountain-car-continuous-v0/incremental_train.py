@@ -1,45 +1,31 @@
 import os.path
 import pickle
-from typing import List, Union
+from typing import List, Optional
 
 import gym
 import numpy as np
+import yaml
 from keras.layers import Dense
 from keras.models import Sequential, load_model, Model
 from keras.optimizer_v2.adam import Adam
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
-import tensorflow as tf
 from tqdm import tqdm
 
 from src.utils.gpu import set_memory_growth
 
-n_warmup_sim = 1000000
-min_pos_episodes = 50
-at_most_n_neg_episodes_per_pos = 1
-n_policy_sim = 10
-n_policy_samples = 2000
-max_step = 200
-extreme_action_chance = 1.0
-keep_n_simulations = 100
-trainings_steps = 20
-sample_n_actions = 20
-score_n_simulations = 5
-chance_for_random = 0.5
-epochs = 10000
-value_model_lr = 1e-5
-batch_size = 20
-render_every_n_step: Union[None, int] = None
-score_every_n_epochs = 200
-min_delta_value = 0.1
-min_delta_policy = 0.0001
-monitor = "loss"
-reject_episode = False
+
+with open("config.yml") as config_file:
+    config = yaml.load(config_file, Loader=yaml.FullLoader)
 
 
 set_memory_growth()
 
-env = gym.make('MountainCarContinuous-v0')
+env_config = config["env"]
+env = gym.make(env_config["name"])
+max_step: int = env_config["max_step"]
 obs_size = env.observation_space.shape[0]
+
+reject_episode = False
 
 
 def try_reject_episode(obs: List[np.ndarray]) -> bool:
@@ -80,6 +66,13 @@ def try_reject_episode(obs: List[np.ndarray]) -> bool:
 
 
 # Warm up
+
+value_config = config["value"]
+n_warmup_sim: int = value_config["n_sim"]
+min_pos_episodes: int = value_config["min_pos_episodes"]
+at_most_n_neg_episodes_per_pos: float = value_config["at_most_n_neg_episodes_per_pos"]
+extreme_action_chance: float = value_config["extreme_action_chance"]
+
 
 def get_warmup_dataset():
 
@@ -147,11 +140,13 @@ extend_and_save_arr(x_obs_arr, "temp/x_obs_arr.p")
 extend_and_save_arr(x_action_arr, "temp/x_action_arr.p")
 extend_and_save_arr(y_reward_arr, "temp/y_reward_arr.p")
 
+value_scale: float = value_config["label_scale"]
+
 
 def create_training_data():
     x_obs = np.array(x_obs_arr)
     x_action = np.array(x_action_arr)
-    y_reward = np.array(y_reward_arr)
+    y_reward = np.array(y_reward_arr) * value_scale
 
     return np.concatenate([x_obs, x_action], axis=1), y_reward
 
@@ -165,11 +160,17 @@ def get_value_model():
         Dense(units=4, activation="relu"),
         Dense(units=1, activation="relu")
     ])
-    value_model.compile(Adam(learning_rate=value_model_lr), "mse")
+    value_model.compile(Adam(learning_rate=value_config["lr"]), "mse")
     return value_model
 
 
 value_model = get_value_model()
+
+
+eval_config = config["eval"]
+
+score_n_simulations = eval_config["n_sim"]
+render_every_n_step: Optional[int] = eval_config["render_every_n_step"]
 
 
 def score_value_model():
@@ -218,15 +219,22 @@ class ScoreValueModel(Callback):
             score_value_model()
 
 
+min_delta_value = value_config["min_delta"]
+monitor = value_config["monitor"]
+
 value_callbacks = [
     ReduceLROnPlateau(patience=10, min_delta=min_delta_value, monitor=monitor, verbose=1),
     EarlyStopping(patience=30, min_delta=min_delta_value, monitor=monitor, verbose=1),
-    ScoreValueModel(period=score_every_n_epochs)
+    ScoreValueModel(period=value_config["score_period"])
 ]
-value_model.fit(x, y, batch_size=batch_size, epochs=epochs, verbose=2, callbacks=value_callbacks)
+value_model.fit(
+    x, y, batch_size=value_config["batch_size"], epochs=value_config["epochs"], verbose=2, callbacks=value_callbacks
+)
 value_model.save("temp/car_value-model.h5")
 # value_model: Model = load_model("temp/car_value-model.h5")
 # score_value_model()
+
+policy_config = config["policy"]
 
 
 def get_policy_model():
@@ -235,11 +243,16 @@ def get_policy_model():
         Dense(units=4, activation="relu"),
         Dense(units=env.action_space.shape[0], activation="tanh")
     ])
-    policy_model.compile(Adam(learning_rate=0.001), "mse")
+    policy_model.compile(Adam(learning_rate=policy_config["lr"]), "mse")
     return policy_model
 
 
 policy_model: Model = get_policy_model()
+
+
+n_policy_sim = policy_config["n_sim"]
+n_policy_samples = policy_config["n_policy_samples"]
+sample_n_actions = policy_config["n_action_samples"]
 
 
 def get_policy_dataset():
@@ -332,17 +345,18 @@ class ScorePolicyModel(Callback):
             score_policy_model()
 
 
+min_delta_policy: float = policy_config["min_delta"]
 policy_callbacks = [
     ReduceLROnPlateau(patience=10, min_delta=min_delta_policy, monitor=monitor, verbose=1),
     EarlyStopping(patience=30, min_delta=min_delta_policy, monitor=monitor, verbose=1),
-    ScorePolicyModel(period=score_every_n_epochs)
+    ScorePolicyModel(period=policy_config["score_period"])
 ]
 
 # score_policy_model()
 
 policy_model.fit(
-    np.array(xq_obs_arr), np.array(yq_action_arr), batch_size=batch_size, epochs=epochs, verbose=2,
-    callbacks=policy_callbacks
+    np.array(xq_obs_arr), np.array(yq_action_arr), batch_size=policy_config["batch_size"],
+    epochs=policy_config["epochs"], verbose=2, callbacks=policy_callbacks
 )
 policy_model.save("temp/car_policy-model.h5")
 
