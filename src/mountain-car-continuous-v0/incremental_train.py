@@ -11,6 +11,7 @@ from keras.optimizer_v2.adam import Adam
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
 from tqdm import tqdm
 
+from src.utils.dataset import extend_and_save_arr
 from src.utils.gpu import set_memory_growth
 
 
@@ -124,13 +125,6 @@ def get_warmup_dataset():
     print(f"Successful episodes: {pos_episodes}")
 
     return x_obs_arr, x_action_arr, y_reward_arr
-
-
-def extend_and_save_arr(arr: List, path: str):
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            arr.extend(pickle.load(f))
-    pickle.dump(arr, open(path, "wb"))
 
 
 x_obs_arr, x_action_arr, y_reward_arr = get_warmup_dataset()
