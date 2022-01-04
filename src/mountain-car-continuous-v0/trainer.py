@@ -22,7 +22,7 @@ class MountainCarContinuousTrainer:
         with open(config_path) as config_file:
             self.config = yaml.load(config_file, Loader=yaml.FullLoader)
 
-        self.log = logging.Logger("MountainCarContinuousTrainer")
+        self.log = logging.getLogger("MountainCarContinuousTrainer")
 
         self.env_config = self.config["env"]
         self.env = gym.make(self.env_config["name"])
@@ -281,7 +281,6 @@ class MountainCarContinuousTrainer:
         self.policy_model.save("temp/car_policy-model.h5")
 
     def run(self):
-        set_memory_growth()
 
         self.create_value_dataset()
         value_x, value_y = self.create_value_training_data()
@@ -290,7 +289,7 @@ class MountainCarContinuousTrainer:
         self.score_value_model()
 
         self.create_policy_dataset()
-        policy_x, policy_y = self.create_value_training_data()
+        policy_x, policy_y = self.create_policy_training_data()
         self.policy_model = self.get_policy_model()
         self.train_policy_model(policy_x, policy_y)
         self.score_policy_model()
@@ -316,3 +315,10 @@ class ScorePolicyModel(Callback):
     def on_epoch_end(self, epoch, logs=None):
         if (epoch + 1) % self.period == 0:
             self.trainer.score_policy_model()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s:%(levelname)s: %(message)s")
+    set_memory_growth()
+    mountain_trainer = MountainCarContinuousTrainer()
+    mountain_trainer.run()
