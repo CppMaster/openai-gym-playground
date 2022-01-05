@@ -3,22 +3,43 @@ env:
   max_step: 200
 
 value:
-  n_sim: 1000000
-  max_pos_episodes: 1 # Optional[int]
-  at_most_n_neg_episodes_per_pos: 1.0 # Optional[float]
+  n_sim: 20000
+  max_pos_episodes: null # Optional[int]
+  at_most_n_neg_episodes_per_pos: null # Optional[float]
+  reward:
+    max_vel_weight: 200.
+    min_vel_weight: 100.
+    max_dist_weight: 100.
+    min_dist_weight: 50.
+  load_dataset: false
   extreme_action_chance: 1.0
-  epochs: 100
+  epochs: 10000
+  model:
+    layers:
+      - type: dense
+        units: 8
+        activation: relu
+      - type: dense
+        units: 8
+        activation: relu
+      - type: dense
+        units: 4
+        activation: relu
+      - type: dense
+        units: 1
+        activation: linear
   lr: 1.e-5
   min_delta: 1.e-5
   monitor: loss
   label_scale: 1.e-2
   batch_size: 50
-  score_period: 40
+  score_period: 10
 
 policy:
   n_sim: 10
   n_policy_samples: 2000
   n_action_samples: 20
+  load_dataset: false
   epochs: 100
   lr: 1.e-5
   min_delta: 1.e-5

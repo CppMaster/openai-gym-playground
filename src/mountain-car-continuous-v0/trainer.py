@@ -5,6 +5,7 @@ import logging
 import gym
 import numpy as np
 import yaml
+from keras.engine.base_layer import Layer
 from keras.layers import Dense
 from keras.models import Sequential, load_model, Model
 from keras.optimizer_v2.adam import Adam
@@ -103,27 +104,37 @@ class MountainCarContinuousTrainer:
                 if done:
                     break
 
-            if total_reward > 0.0:
+            is_pos_episode = total_reward > 0.0
+
+            obs_np = np.array(observations)
+            max_vel_reward = (obs_np[:, 1].max() + 0.5) * self.value_config["reward"]["max_vel_weight"]
+            min_vel_reward = -(obs_np[:, 1].min() + 0.5) * self.value_config["reward"]["min_vel_weight"]
+            max_dist_reward = obs_np[:, 0].max() * self.value_config["reward"]["max_dist_weight"]
+            min_dist_reward = -obs_np[:, 0].min() * self.value_config["reward"]["min_dist_weight"]
+            total_reward += np.max([max_vel_reward, min_vel_reward]) + np.max([max_dist_reward, min_dist_reward])
+
+            if is_pos_episode:
                 add_episode()
                 pos_episodes += 1
-                self.log.debug(f"Successful episode {pos_episodes}/{self.max_pos_episodes} with reward: {total_reward}")
+                # self.log.debug(f"Successful episode {pos_episodes} with reward: {total_reward}")
                 if do_stop_n_pos_episodes():
                     break
-            elif self.at_most_n_neg_episodes_per_pos is not None and \
+            elif self.at_most_n_neg_episodes_per_pos is None or \
                     neg_episodes < self.at_most_n_neg_episodes_per_pos * (pos_episodes + 1):
                 add_episode()
                 neg_episodes += 1
 
-        self.log.info(f"Successful episodes: {pos_episodes}")
+        # self.log.info(f"Successful episodes: {pos_episodes}")
 
         return x_obs_arr, x_action_arr, y_reward_arr
 
     def create_value_dataset(self):
         self.x_obs_value_arr, self.x_action_value_arr, self.y_reward_value_arr = self.get_warmup_value_dataset()
-        os.makedirs("temp", exist_ok=True)
-        extend_and_save_arr(self.x_obs_value_arr, "temp/x_obs_arr.p")
-        extend_and_save_arr(self.x_action_value_arr, "temp/x_action_arr.p")
-        extend_and_save_arr(self.y_reward_value_arr, "temp/y_reward_arr.p")
+        if self.value_config["load_dataset"]:
+            os.makedirs("temp", exist_ok=True)
+            extend_and_save_arr(self.x_obs_value_arr, "temp/x_obs_arr.p")
+            extend_and_save_arr(self.x_action_value_arr, "temp/x_action_arr.p")
+            extend_and_save_arr(self.y_reward_value_arr, "temp/y_reward_arr.p")
 
     def create_value_training_data(self) -> Tuple[np.ndarray, np.ndarray]:
         self.x_obs_value = np.array(self.x_obs_value_arr)
@@ -133,12 +144,15 @@ class MountainCarContinuousTrainer:
         return np.concatenate([self.x_obs_value, self.x_action_value], axis=1), self.y_reward_value
 
     def get_value_model(self) -> Model:
-        value_model = Sequential([
-            Dense(units=8, input_dim=self.env.observation_space.shape[0] + self.env.action_space.shape[0],
-                  activation="relu"),
-            Dense(units=4, activation="relu"),
-            Dense(units=1, activation="relu")
-        ])
+        model_config = self.value_config["model"]
+        layers: List[Layer] = []
+        input_dim = self.env.observation_space.shape[0] + self.env.action_space.shape[0]
+        for l_i, layer in enumerate(model_config["layers"]):
+            if layer["type"] == "dense":
+                layers.append(Dense(units=layer["units"], activation=layer["activation"],
+                                    input_dim=input_dim if l_i == 0 else None))
+
+        value_model = Sequential(layers)
         value_model.compile(Adam(learning_rate=self.value_config["lr"]), "mse")
         return value_model
 
@@ -164,7 +178,7 @@ class MountainCarContinuousTrainer:
                 total_reward += reward
                 if done:
                     break
-            self.log.debug(f"Score: {total_reward}")
+            self.log.debug(f"Score: {total_reward}, max distance: {np.max(np.array(observations)[:,0])}")
             scores.append(total_reward)
 
         score = float(np.mean(scores))
@@ -239,10 +253,11 @@ class MountainCarContinuousTrainer:
         return xq_obs_arr, yq_action_arr
 
     def create_policy_dataset(self):
-        os.makedirs("temp", exist_ok=True)
         self.x_obs_policy_arr, self.y_action_policy_arr = self.get_policy_dataset()
-        extend_and_save_arr(self.x_obs_policy_arr, "temp/xq_obs_arr.p")
-        extend_and_save_arr(self.y_action_policy_arr, "temp/yq_action_arr.p")
+        if self.policy_config["load_dataset"]:
+            os.makedirs("temp", exist_ok=True)
+            extend_and_save_arr(self.x_obs_policy_arr, "temp/xq_obs_arr.p")
+            extend_and_save_arr(self.y_action_policy_arr, "temp/yq_action_arr.p")
 
     def score_policy_model(self) -> float:
 
