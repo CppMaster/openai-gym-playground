@@ -7,11 +7,12 @@ import numpy as np
 import yaml
 from keras.engine.base_layer import Layer
 from keras.layers import Dense
-from keras.models import Sequential, load_model, Model
+from keras.models import Sequential, Model
 from keras.optimizer_v2.adam import Adam
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
 from tqdm import tqdm
 
+from src.utils.callbacks.epoch_logger import EpochLogger
 from src.utils.dataset import extend_and_save_arr
 from src.utils.gpu import set_memory_growth
 
@@ -178,7 +179,7 @@ class MountainCarContinuousTrainer:
                 total_reward += reward
                 if done:
                     break
-            self.log.debug(f"Score: {total_reward}, max distance: {np.max(np.array(observations)[:,0])}")
+            self.log.debug(f"Score: {total_reward},\tmax distance: {np.max(np.array(observations)[:,0])}")
             scores.append(total_reward)
 
         score = float(np.mean(scores))
@@ -187,12 +188,13 @@ class MountainCarContinuousTrainer:
 
     def train_value_model(self, x: np.ndarray, y: np.ndarray):
         value_callbacks = [
+            EpochLogger(),
             ReduceLROnPlateau(patience=10, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
             EarlyStopping(patience=30, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
             ScoreValueModel(self, period=self.value_config["score_period"])
         ]
         self.value_model.fit(
-            x, y, batch_size=self.value_config["batch_size"], epochs=self.value_config["epochs"], verbose=2,
+            x, y, batch_size=self.value_config["batch_size"], epochs=self.value_config["epochs"], verbose=0,
             callbacks=value_callbacks
         )
         self.value_model.save("temp/car_value-model.h5")
@@ -292,13 +294,14 @@ class MountainCarContinuousTrainer:
 
     def train_policy_model(self, x, y):
         policy_callbacks = [
+            EpochLogger(),
             ReduceLROnPlateau(patience=10, min_delta=self.min_delta_policy, monitor=self.monitor_value, verbose=1),
             EarlyStopping(patience=30, min_delta=self.min_delta_policy, monitor=self.monitor_value, verbose=1),
             ScorePolicyModel(self, period=self.policy_config["score_period"])
         ]
         self.policy_model.fit(
             x, y, batch_size=self.policy_config["batch_size"],
-            epochs=self.policy_config["epochs"], verbose=2, callbacks=policy_callbacks
+            epochs=self.policy_config["epochs"], verbose=0, callbacks=policy_callbacks
         )
         self.policy_model.save("temp/car_policy-model.h5")
 
