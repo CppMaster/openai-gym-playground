@@ -4,8 +4,8 @@ env:
 
 value:
   n_sim: 1000000
-  min_pos_episodes: 0
-  at_most_n_neg_episodes_per_pos: 1.0
+  max_pos_episodes: 1 # Optional[int]
+  at_most_n_neg_episodes_per_pos: 1.0 # Optional[float]
   extreme_action_chance: 1.0
   epochs: 100
   lr: 1.e-5
@@ -28,5 +28,5 @@ policy:
 
 eval:
   n_sim: 5
-  render_every_n_step: null # Optional[Int]
+  render_every_n_step: null # Optional[int]
 

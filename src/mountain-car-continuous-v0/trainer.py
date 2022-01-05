@@ -31,12 +31,13 @@ class MountainCarContinuousTrainer:
 
         self.value_config = self.config["value"]
         self.n_warmup_sim: int = self.value_config["n_sim"]
-        self.min_pos_episodes: int = self.value_config["min_pos_episodes"]
-        self.at_most_n_neg_episodes_per_pos: float = self.value_config["at_most_n_neg_episodes_per_pos"]
+        self.max_pos_episodes: Optional[int] = self.value_config["max_pos_episodes"]
+        self.max_pos_episodes: Optional[int] = self.value_config["max_pos_episodes"]
+        self.at_most_n_neg_episodes_per_pos: Optional[float] = self.value_config["at_most_n_neg_episodes_per_pos"]
         self.extreme_action_chance: float = self.value_config["extreme_action_chance"]
         self.value_scale: float = self.value_config["label_scale"]
-        self.min_delta_value = self.value_config["min_delta"]
-        self.monitor_value = self.value_config["monitor"]
+        self.min_delta_value: float = self.value_config["min_delta"]
+        self.monitor_value: str = self.value_config["monitor"]
         self.x_obs_value_arr: List[List[float]] = []
         self.x_action_value_arr: List[List[float]] = []
         self.y_reward_value_arr: List[List[float]] = []
@@ -46,19 +47,19 @@ class MountainCarContinuousTrainer:
         self.value_model: Optional[Model] = None
 
         self.eval_config = self.config["eval"]
-        self.score_n_simulations = self.eval_config["n_sim"]
+        self.score_n_simulations: int = self.eval_config["n_sim"]
         self.render_every_n_step: Optional[int] = self.eval_config["render_every_n_step"]
 
         self.policy_config = self.config["policy"]
-        self.n_policy_sim = self.policy_config["n_sim"]
-        self.n_policy_samples = self.policy_config["n_policy_samples"]
-        self.sample_n_actions = self.policy_config["n_action_samples"]
+        self.n_policy_sim: int = self.policy_config["n_sim"]
+        self.n_policy_samples: int = self.policy_config["n_policy_samples"]
+        self.sample_n_actions: int = self.policy_config["n_action_samples"]
         self.x_obs_policy_arr: List[List[float]] = []
         self.y_action_policy_arr: List[List[float]] = []
         self.x_obs_policy: np.ndarray = np.empty(0)
         self.y_action_policy: np.ndarray = np.empty(0)
-        self.min_delta_policy = self.policy_config["min_delta"]
-        self.monitor_policy = self.policy_config["monitor"]
+        self.min_delta_policy: float = self.policy_config["min_delta"]
+        self.monitor_policy: str = self.policy_config["monitor"]
         self.policy_model: Optional[Model] = None
 
     def get_warmup_value_dataset(self) -> Tuple[List[List[float]], List[List[float]], List[List[float]]]:
@@ -71,9 +72,18 @@ class MountainCarContinuousTrainer:
 
         pos_episodes = 0
         neg_episodes = 0
+
+        def add_episode():
+            x_obs_arr.extend(observations)
+            x_action_arr.extend(actions)
+            y_reward_arr.extend([[total_reward]] * len(observations))
+
+        def do_stop_n_pos_episodes() -> bool:
+            return self.max_pos_episodes is not None and pos_episodes >= self.max_pos_episodes
+
         for _ in tqdm(range(self.n_warmup_sim)):
 
-            if pos_episodes >= self.min_pos_episodes:
+            if do_stop_n_pos_episodes():
                 break
 
             observation = self.env.reset()
@@ -94,17 +104,14 @@ class MountainCarContinuousTrainer:
                     break
 
             if total_reward > 0.0:
-                x_obs_arr.extend(observations)
-                x_action_arr.extend(actions)
-                y_reward_arr.extend([[total_reward]] * len(observations))
+                add_episode()
                 pos_episodes += 1
-                self.log.debug(f"Successful episode {pos_episodes}/{self.min_pos_episodes} with reward: {total_reward}")
-                if pos_episodes >= self.min_pos_episodes:
+                self.log.debug(f"Successful episode {pos_episodes}/{self.max_pos_episodes} with reward: {total_reward}")
+                if do_stop_n_pos_episodes():
                     break
-            elif neg_episodes < self.at_most_n_neg_episodes_per_pos * (pos_episodes + 1):
-                x_obs_arr.extend(observations)
-                x_action_arr.extend(actions)
-                y_reward_arr.extend([[total_reward]] * len(observations))
+            elif self.at_most_n_neg_episodes_per_pos is not None and \
+                    neg_episodes < self.at_most_n_neg_episodes_per_pos * (pos_episodes + 1):
+                add_episode()
                 neg_episodes += 1
 
         self.log.info(f"Successful episodes: {pos_episodes}")
