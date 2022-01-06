@@ -24,7 +24,10 @@ class MountainCarContinuousTrainer:
         with open(config_path) as config_file:
             self.config = yaml.load(config_file, Loader=yaml.FullLoader)
 
+        self.file_dir = self.config["run"]["file_dir"]
+
         self.log = logging.getLogger("MountainCarContinuousTrainer")
+        self.log.addHandler(logging.FileHandler(f"{self.file_dir}/log.txt"))
 
         self.env_config = self.config["env"]
         self.env = gym.make(self.env_config["name"])
@@ -132,10 +135,9 @@ class MountainCarContinuousTrainer:
     def create_value_dataset(self):
         self.x_obs_value_arr, self.x_action_value_arr, self.y_reward_value_arr = self.get_warmup_value_dataset()
         if self.value_config["load_dataset"]:
-            os.makedirs("temp", exist_ok=True)
-            extend_and_save_arr(self.x_obs_value_arr, "temp/x_obs_arr.p")
-            extend_and_save_arr(self.x_action_value_arr, "temp/x_action_arr.p")
-            extend_and_save_arr(self.y_reward_value_arr, "temp/y_reward_arr.p")
+            extend_and_save_arr(self.x_obs_value_arr, f"{self.file_dir}/x_obs_arr.p")
+            extend_and_save_arr(self.x_action_value_arr, f"{self.file_dir}/x_action_arr.p")
+            extend_and_save_arr(self.y_reward_value_arr, f"{self.file_dir}/y_reward_arr.p")
 
     def create_value_training_data(self) -> Tuple[np.ndarray, np.ndarray]:
         self.x_obs_value = np.array(self.x_obs_value_arr)
@@ -197,7 +199,7 @@ class MountainCarContinuousTrainer:
             x, y, batch_size=self.value_config["batch_size"], epochs=self.value_config["epochs"], verbose=0,
             callbacks=value_callbacks
         )
-        self.value_model.save("temp/car_value-model.h5")
+        self.value_model.save(f"{self.file_dir}/car_value-model.h5")
 
     def get_policy_model(self) -> Model:
         policy_model = Sequential([
@@ -257,9 +259,8 @@ class MountainCarContinuousTrainer:
     def create_policy_dataset(self):
         self.x_obs_policy_arr, self.y_action_policy_arr = self.get_policy_dataset()
         if self.policy_config["load_dataset"]:
-            os.makedirs("temp", exist_ok=True)
-            extend_and_save_arr(self.x_obs_policy_arr, "temp/xq_obs_arr.p")
-            extend_and_save_arr(self.y_action_policy_arr, "temp/yq_action_arr.p")
+            extend_and_save_arr(self.x_obs_policy_arr, f"{self.file_dir}/xq_obs_arr.p")
+            extend_and_save_arr(self.y_action_policy_arr, f"{self.file_dir}/yq_action_arr.p")
 
     def score_policy_model(self) -> float:
 
@@ -303,9 +304,12 @@ class MountainCarContinuousTrainer:
             x, y, batch_size=self.policy_config["batch_size"],
             epochs=self.policy_config["epochs"], verbose=0, callbacks=policy_callbacks
         )
-        self.policy_model.save("temp/car_policy-model.h5")
+        self.policy_model.save(f"{self.file_dir}/car_policy-model.h5")
 
     def run(self):
+
+        self.log.info("Trainer started")
+        os.makedirs(self.file_dir, exist_ok=True)
 
         self.create_value_dataset()
         value_x, value_y = self.create_value_training_data()

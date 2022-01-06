@@ -1,17 +1,20 @@
+run:
+  file_dir: "temp/v3"
+
 env:
   name: MountainCarContinuous-v0
   max_step: 200
 
 value:
-  n_sim: 20000
+  n_sim: 10000
   max_pos_episodes: null # Optional[int]
   at_most_n_neg_episodes_per_pos: null # Optional[float]
   reward:
-    max_vel_weight: 200.
-    min_vel_weight: 100.
-    max_dist_weight: 100.
-    min_dist_weight: 50.
-  load_dataset: false
+    max_vel_weight: 100.
+    min_vel_weight: 25.
+    max_dist_weight: 50.
+    min_dist_weight: 12.5
+  load_dataset: true
   extreme_action_chance: 1.0
   epochs: 10000
   model:
@@ -29,7 +32,7 @@ value:
         units: 1
         activation: linear
   lr: 1.e-5
-  min_delta: 1.e-5
+  min_delta: 1.e-7
   monitor: loss
   label_scale: 1.e-2
   batch_size: 50
@@ -39,7 +42,7 @@ policy:
   n_sim: 10
   n_policy_samples: 2000
   n_action_samples: 20
-  load_dataset: false
+  load_dataset: true
   epochs: 100
   lr: 1.e-5
   min_delta: 1.e-5
