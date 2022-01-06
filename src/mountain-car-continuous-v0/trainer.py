@@ -1,4 +1,5 @@
 import os.path
+from copy import deepcopy
 from typing import List, Optional, Tuple
 import logging
 
@@ -106,6 +107,15 @@ class MountainCarContinuousTrainer:
         def do_stop_n_pos_episodes() -> bool:
             return self.max_pos_episodes is not None and pos_episodes >= self.max_pos_episodes
 
+        reward_discount: float = self.value_config["reward"]["discount"]
+        if reward_discount:
+            discount_matrix = np.zeros((self.max_step * 2, self.max_step))
+            discounts = np.array([np.power(reward_discount, x) for x in range(self.max_step)])
+            for x in range(self.max_step):
+                discount_matrix[x:x+self.max_step, x] = discounts
+        else:
+            discount_matrix = None
+
         for _ in tqdm(range(self.n_warmup_sim)):
 
             if do_stop_n_pos_episodes():
@@ -129,14 +139,16 @@ class MountainCarContinuousTrainer:
                 is_pos_episode = reward > 0.0
                 reward += self.get_step_shaped_reward(observation)
                 rewards.append(reward)
-                discounted_reward = reward
-
-                for i in range(len(rewards)-1, -1, -1):
-                    discounted_reward *= self.value_config["reward"]["discount"]
-                    rewards[i] += discounted_reward
 
                 if done:
                     break
+
+            if reward_discount:
+                discounted_rewards = deepcopy(rewards)
+                n_padding = self.max_step * 2 - len(discounted_rewards)
+                discounted_rewards = discounted_rewards + [discounted_rewards[-1]] * n_padding
+                discounted_rewards = np.matmul(np.array(discounted_rewards), discount_matrix)
+                rewards = discounted_rewards[:len(rewards)]
 
             end_shaped_reward = self.get_end_shaped_reward(observations)
             for i in range(len(rewards)):
@@ -343,11 +355,12 @@ class MountainCarContinuousTrainer:
         self.train_value_model(value_x, value_y)
         self.score_value_model()
 
-        self.create_policy_dataset()
-        policy_x, policy_y = self.create_policy_training_data()
-        self.policy_model = self.get_policy_model()
-        self.train_policy_model(policy_x, policy_y)
-        self.score_policy_model()
+        if not self.policy_config["skip"]:
+            self.create_policy_dataset()
+            policy_x, policy_y = self.create_policy_training_data()
+            self.policy_model = self.get_policy_model()
+            self.train_policy_model(policy_x, policy_y)
+            self.score_policy_model()
 
 
 class ScoreValueModel(Callback):
@@ -373,7 +386,7 @@ class ScorePolicyModel(Callback):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s:%(levelname)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s :%(levelname)s:\t%(message)s")
     set_memory_growth()
     mountain_trainer = MountainCarContinuousTrainer()
     mountain_trainer.run()

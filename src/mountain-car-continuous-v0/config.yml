@@ -1,20 +1,20 @@
 run:
-  file_dir: "temp/v4"
+  file_dir: "temp/v6"
 
 env:
   name: MountainCarContinuous-v0
   max_step: 200
 
 value:
-  n_sim: 30000
+  n_sim: 10000
   max_pos_episodes: null # Optional[int]
-  at_most_n_neg_episodes_per_pos: null # Optional[float]
+  at_most_n_neg_episodes_per_pos: 200.0 # Optional[float]
   reward:
     max_vel_weight: 1.
     min_vel_weight: 0.25
     max_dist_weight: 0.5
     min_dist_weight: 0.125
-    discount: 0.95
+    discount: 0.5
     end_reward_scale: 0. # 100.
     step_reward_scale: 1.
   load_dataset: true
@@ -42,6 +42,8 @@ value:
   score_period: 10
 
 policy:
+
+  skip: true
   n_sim: 10
   n_policy_samples: 2000
   n_action_samples: 20
