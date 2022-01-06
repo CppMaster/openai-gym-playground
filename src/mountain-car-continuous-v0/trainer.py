@@ -9,7 +9,7 @@ from keras.engine.base_layer import Layer
 from keras.layers import Dense
 from keras.models import Sequential, Model
 from keras.optimizer_v2.adam import Adam
-from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
+from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback, ModelCheckpoint
 from tqdm import tqdm
 
 from src.utils.callbacks.epoch_logger import EpochLogger
@@ -25,9 +25,12 @@ class MountainCarContinuousTrainer:
             self.config = yaml.load(config_file, Loader=yaml.FullLoader)
 
         self.file_dir = self.config["run"]["file_dir"]
+        os.makedirs(self.file_dir, exist_ok=True)
 
         self.log = logging.getLogger("MountainCarContinuousTrainer")
-        self.log.addHandler(logging.FileHandler(f"{self.file_dir}/log.txt"))
+        fh = logging.FileHandler(f"{self.file_dir}/log.txt")
+        fh.setLevel(logging.DEBUG)
+        self.log.addHandler(fh)
 
         self.env_config = self.config["env"]
         self.env = gym.make(self.env_config["name"])
@@ -67,6 +70,23 @@ class MountainCarContinuousTrainer:
         self.monitor_policy: str = self.policy_config["monitor"]
         self.policy_model: Optional[Model] = None
 
+    def get_end_shaped_reward(self, observations: List[List[float]]) -> float:
+        obs_np = np.array(observations)
+        max_vel_reward = (obs_np[:, 1].max() + 0.5) * self.value_config["reward"]["max_vel_weight"]
+        min_vel_reward = -(obs_np[:, 1].min() + 0.5) * self.value_config["reward"]["min_vel_weight"]
+        max_dist_reward = obs_np[:, 0].max() * self.value_config["reward"]["max_dist_weight"]
+        min_dist_reward = -obs_np[:, 0].min() * self.value_config["reward"]["min_dist_weight"]
+        shaped_reward = np.max([max_vel_reward, min_vel_reward]) + np.max([max_dist_reward, min_dist_reward])
+        return shaped_reward * self.value_config["reward"]["end_reward_scale"]
+
+    def get_step_shaped_reward(self, observation: List[float]) -> float:
+        max_vel_reward = (observation[1] + 0.5) * self.value_config["reward"]["max_vel_weight"]
+        min_vel_reward = -(observation[1] + 0.5) * self.value_config["reward"]["min_vel_weight"]
+        max_dist_reward = observation[0] * self.value_config["reward"]["max_dist_weight"]
+        min_dist_reward = observation[0] * self.value_config["reward"]["min_dist_weight"]
+        shaped_reward = np.max([max_vel_reward, min_vel_reward]) + np.max([max_dist_reward, min_dist_reward])
+        return shaped_reward * self.value_config["reward"]["step_reward_scale"]
+
     def get_warmup_value_dataset(self) -> Tuple[List[List[float]], List[List[float]], List[List[float]]]:
 
         self.log.info("Creating warmup value dataset")
@@ -81,7 +101,7 @@ class MountainCarContinuousTrainer:
         def add_episode():
             x_obs_arr.extend(observations)
             x_action_arr.extend(actions)
-            y_reward_arr.extend([[total_reward]] * len(observations))
+            y_reward_arr.extend(rewards)
 
         def do_stop_n_pos_episodes() -> bool:
             return self.max_pos_episodes is not None and pos_episodes >= self.max_pos_episodes
@@ -92,9 +112,11 @@ class MountainCarContinuousTrainer:
                 break
 
             observation = self.env.reset()
-            total_reward = 0
             observations = []
             actions = []
+            rewards = []
+            is_pos_episode = False
+
             for _ in range(self.max_step):
 
                 if np.random.random() < self.extreme_action_chance:
@@ -104,18 +126,21 @@ class MountainCarContinuousTrainer:
                 observations.append(observation)
                 actions.append(action)
                 observation, reward, done, info = self.env.step(action)
-                total_reward += reward
+                is_pos_episode = reward > 0.0
+                reward += self.get_step_shaped_reward(observation)
+                rewards.append(reward)
+                discounted_reward = reward
+
+                for i in range(len(rewards)-1, -1, -1):
+                    discounted_reward *= self.value_config["reward"]["discount"]
+                    rewards[i] += discounted_reward
+
                 if done:
                     break
 
-            is_pos_episode = total_reward > 0.0
-
-            obs_np = np.array(observations)
-            max_vel_reward = (obs_np[:, 1].max() + 0.5) * self.value_config["reward"]["max_vel_weight"]
-            min_vel_reward = -(obs_np[:, 1].min() + 0.5) * self.value_config["reward"]["min_vel_weight"]
-            max_dist_reward = obs_np[:, 0].max() * self.value_config["reward"]["max_dist_weight"]
-            min_dist_reward = -obs_np[:, 0].min() * self.value_config["reward"]["min_dist_weight"]
-            total_reward += np.max([max_vel_reward, min_vel_reward]) + np.max([max_dist_reward, min_dist_reward])
+            end_shaped_reward = self.get_end_shaped_reward(observations)
+            for i in range(len(rewards)):
+                rewards[i] += end_shaped_reward
 
             if is_pos_episode:
                 add_episode()
@@ -128,7 +153,7 @@ class MountainCarContinuousTrainer:
                 add_episode()
                 neg_episodes += 1
 
-        # self.log.info(f"Successful episodes: {pos_episodes}")
+        self.log.info(f"Successful episodes: {pos_episodes}")
 
         return x_obs_arr, x_action_arr, y_reward_arr
 
@@ -193,13 +218,14 @@ class MountainCarContinuousTrainer:
             EpochLogger(),
             ReduceLROnPlateau(patience=10, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
             EarlyStopping(patience=30, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
+            ModelCheckpoint(f"{self.file_dir}/value-model.h5", monitor=self.monitor_value),
             ScoreValueModel(self, period=self.value_config["score_period"])
         ]
+        self.log.info("Training value model")
         self.value_model.fit(
             x, y, batch_size=self.value_config["batch_size"], epochs=self.value_config["epochs"], verbose=0,
             callbacks=value_callbacks
         )
-        self.value_model.save(f"{self.file_dir}/car_value-model.h5")
 
     def get_policy_model(self) -> Model:
         policy_model = Sequential([
@@ -296,20 +322,20 @@ class MountainCarContinuousTrainer:
     def train_policy_model(self, x, y):
         policy_callbacks = [
             EpochLogger(),
-            ReduceLROnPlateau(patience=10, min_delta=self.min_delta_policy, monitor=self.monitor_value, verbose=1),
-            EarlyStopping(patience=30, min_delta=self.min_delta_policy, monitor=self.monitor_value, verbose=1),
+            ReduceLROnPlateau(patience=10, min_delta=self.min_delta_policy, monitor=self.monitor_policy, verbose=1),
+            EarlyStopping(patience=30, min_delta=self.min_delta_policy, monitor=self.monitor_policy, verbose=1),
+            ModelCheckpoint(f"{self.file_dir}/policy-model.h5", monitor=self.monitor_policy),
             ScorePolicyModel(self, period=self.policy_config["score_period"])
         ]
+        self.log.info("Training policy model")
         self.policy_model.fit(
             x, y, batch_size=self.policy_config["batch_size"],
             epochs=self.policy_config["epochs"], verbose=0, callbacks=policy_callbacks
         )
-        self.policy_model.save(f"{self.file_dir}/car_policy-model.h5")
 
     def run(self):
 
         self.log.info("Trainer started")
-        os.makedirs(self.file_dir, exist_ok=True)
 
         self.create_value_dataset()
         value_x, value_y = self.create_value_training_data()
