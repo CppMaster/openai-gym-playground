@@ -6,7 +6,7 @@ env:
   max_step: 200
 
 value:
-  n_sim: 10000
+  n_sim: 0
   max_pos_episodes: null # Optional[int]
   at_most_n_neg_episodes_per_pos: 200.0 # Optional[float]
   reward:
@@ -21,6 +21,7 @@ value:
   extreme_action_chance: 1.0
   epochs: 10000
   model:
+    load: true
     layers:
       - type: dense
         units: 8

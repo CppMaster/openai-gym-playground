@@ -8,7 +8,7 @@ import numpy as np
 import yaml
 from keras.engine.base_layer import Layer
 from keras.layers import Dense
-from keras.models import Sequential, Model
+from keras.models import Sequential, Model, load_model
 from keras.optimizer_v2.adam import Adam
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback, ModelCheckpoint
 from tqdm import tqdm
@@ -28,10 +28,8 @@ class MountainCarContinuousTrainer:
         self.file_dir = self.config["run"]["file_dir"]
         os.makedirs(self.file_dir, exist_ok=True)
 
-        self.log = logging.getLogger("MountainCarContinuousTrainer")
-        fh = logging.FileHandler(f"{self.file_dir}/log.txt")
-        fh.setLevel(logging.DEBUG)
-        self.log.addHandler(fh)
+        self.log = logging.getLogger("")
+        self.setup_logs()
 
         self.env_config = self.config["env"]
         self.env = gym.make(self.env_config["name"])
@@ -54,6 +52,7 @@ class MountainCarContinuousTrainer:
         self.x_action_value: np.ndarray = np.empty(0)
         self.y_reward_value: np.ndarray = np.empty(0)
         self.value_model: Optional[Model] = None
+        self.value_model_path: str = f"{self.file_dir}/value-model.h5"
 
         self.eval_config = self.config["eval"]
         self.score_n_simulations: int = self.eval_config["n_sim"]
@@ -70,6 +69,18 @@ class MountainCarContinuousTrainer:
         self.min_delta_policy: float = self.policy_config["min_delta"]
         self.monitor_policy: str = self.policy_config["monitor"]
         self.policy_model: Optional[Model] = None
+        self.policy_model_path: str = f"{self.file_dir}/policy-model.h5"
+
+    def setup_logs(self):
+
+        log_format = "%(asctime)s :%(levelname)s:\t%(message)s"
+        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s :%(levelname)s:\t%(message)s",
+                            filename=f"{self.file_dir}/log.txt", filemode="a")
+        log_formatter = logging.Formatter(log_format)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(log_formatter)
+        self.log.addHandler(ch)
 
     def get_end_shaped_reward(self, observations: List[List[float]]) -> float:
         obs_np = np.array(observations)
@@ -185,6 +196,9 @@ class MountainCarContinuousTrainer:
 
     def get_value_model(self) -> Model:
         model_config = self.value_config["model"]
+        if model_config["load"]:
+            return load_model(self.value_model_path)
+
         layers: List[Layer] = []
         input_dim = self.env.observation_space.shape[0] + self.env.action_space.shape[0]
         for l_i, layer in enumerate(model_config["layers"]):
@@ -230,7 +244,7 @@ class MountainCarContinuousTrainer:
             EpochLogger(),
             ReduceLROnPlateau(patience=10, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
             EarlyStopping(patience=30, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
-            ModelCheckpoint(f"{self.file_dir}/value-model.h5", monitor=self.monitor_value),
+            ModelCheckpoint(self.value_model_path, monitor=self.monitor_value),
             ScoreValueModel(self, period=self.value_config["score_period"])
         ]
         self.log.info("Training value model")
@@ -336,7 +350,7 @@ class MountainCarContinuousTrainer:
             EpochLogger(),
             ReduceLROnPlateau(patience=10, min_delta=self.min_delta_policy, monitor=self.monitor_policy, verbose=1),
             EarlyStopping(patience=30, min_delta=self.min_delta_policy, monitor=self.monitor_policy, verbose=1),
-            ModelCheckpoint(f"{self.file_dir}/policy-model.h5", monitor=self.monitor_policy),
+            ModelCheckpoint(self.policy_model_path, monitor=self.monitor_policy),
             ScorePolicyModel(self, period=self.policy_config["score_period"])
         ]
         self.log.info("Training policy model")
@@ -386,7 +400,7 @@ class ScorePolicyModel(Callback):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s :%(levelname)s:\t%(message)s")
+    # logging.basicConfig(level=logging.DEBUG, format="%(asctime)s :%(levelname)s:\t%(message)s")
     set_memory_growth()
     mountain_trainer = MountainCarContinuousTrainer()
     mountain_trainer.run()
