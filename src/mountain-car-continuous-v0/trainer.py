@@ -11,6 +11,7 @@ from keras.layers import Dense
 from keras.models import Sequential, Model, load_model
 from keras.optimizer_v2.adam import Adam
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback, ModelCheckpoint
+from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 from src.utils.callbacks.epoch_logger import EpochLogger
@@ -248,9 +249,16 @@ class MountainCarContinuousTrainer:
             ScoreValueModel(self, period=self.value_config["score_period"])
         ]
         self.log.info("Training value model")
+
+        val_split: Optional[float] = self.value_config["val_split"]
+        if val_split:
+            x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=val_split, shuffle=False)
+        else:
+            x_train, x_valid, y_train, y_valid = x, None, y, None
+
         self.value_model.fit(
-            x, y, batch_size=self.value_config["batch_size"], epochs=self.value_config["epochs"], verbose=0,
-            callbacks=value_callbacks
+            x_train, y_train, validation_data=(x_valid, y_valid), batch_size=self.value_config["batch_size"],
+            epochs=self.value_config["epochs"], verbose=0, callbacks=value_callbacks
         )
 
     def get_policy_model(self) -> Model:
@@ -400,7 +408,6 @@ class ScorePolicyModel(Callback):
 
 
 if __name__ == "__main__":
-    # logging.basicConfig(level=logging.DEBUG, format="%(asctime)s :%(levelname)s:\t%(message)s")
     set_memory_growth()
     mountain_trainer = MountainCarContinuousTrainer()
     mountain_trainer.run()

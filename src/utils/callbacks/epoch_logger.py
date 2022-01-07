@@ -10,4 +10,5 @@ class EpochLogger(Callback):
         self.log = logging.getLogger(__name__)
 
     def on_epoch_end(self, epoch, logs=None):
-        self.log.debug(f"Epoch: {epoch+1},\tloss: {logs['loss']}")
+        self.log.debug(f"Epoch: {epoch+1},\tloss: {logs['loss']}" +
+                       f",\tval_loss: {logs['val_loss']}" if 'val_loss' in logs else "")
