@@ -1,14 +1,14 @@
 run:
-  file_dir: "temp/v7"
+  file_dir: "temp/v9"
 
 env:
   name: MountainCarContinuous-v0
   max_step: 200
 
 value:
-  n_sim: 2000
+  n_sim: 0
   max_pos_episodes: null # Optional[int]
-  at_most_n_neg_episodes_per_pos: 200.0 # Optional[float]
+  at_most_n_neg_episodes_per_pos: null # Optional[float]
   reward:
     max_vel_weight: 1.
     min_vel_weight: 0.25
@@ -22,7 +22,7 @@ value:
   extreme_action_chance: 1.0
   epochs: 10000
   model:
-    load: false
+    load: true
     layers:
       - type: dense
         units: 8
@@ -41,6 +41,7 @@ value:
   monitor: val_loss
   label_scale: 1.e-2
   batch_size: 50
+  initial_score: true
   score_period: 10
 
 policy:
@@ -54,7 +55,7 @@ policy:
   min_delta: 1.e-5
   monitor: loss
   batch_size: 50
-  score_period: 40
+  score_period: 10
 
 eval:
   n_sim: 5

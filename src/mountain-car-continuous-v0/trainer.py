@@ -374,6 +374,8 @@ class MountainCarContinuousTrainer:
         self.create_value_dataset()
         value_x, value_y = self.create_value_training_data()
         self.value_model = self.get_value_model()
+        if self.value_config["initial_score"]:
+            self.score_value_model()
         self.train_value_model(value_x, value_y)
         self.score_value_model()
 
