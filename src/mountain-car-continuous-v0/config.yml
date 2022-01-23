@@ -6,7 +6,7 @@ env:
   max_step: 200
 
 value:
-  n_sim: 1000
+  n_sim: 100000
   max_pos_episodes: null # Optional[int]
   at_most_n_neg_episodes_per_pos: null # Optional[float]
   reward:
@@ -15,9 +15,10 @@ value:
     max_dist_weight: 0.5
     min_dist_weight: 0.125
     discount: 0.5
-    end_reward_scale: 0. # 100.
-    step_reward_scale: 1.
-  load_dataset: True
+    end_reward_scale: 100. # 100.
+    step_reward_scale: 0.
+    all_steps_have_end_value: true
+  load_dataset: false
   val_split: 0.1
   extreme_action_chance: 1.0
   epochs: 10000

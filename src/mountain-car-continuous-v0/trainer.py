@@ -164,6 +164,8 @@ class MountainCarContinuousTrainer:
                 rewards = discounted_rewards[:len(rewards)]
 
             end_shaped_reward = self.get_end_shaped_reward(observations)
+            if self.value_config["reward"]["all_steps_have_end_value"]:
+                rewards = [np.sum(rewards)] * len(rewards)
             for i in range(len(rewards)):
                 rewards[i] += end_shaped_reward
 
