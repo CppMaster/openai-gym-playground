@@ -1,6 +1,6 @@
 import os.path
 from copy import deepcopy
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Callable
 import logging
 
 import gym
@@ -10,13 +10,14 @@ from keras.engine.base_layer import Layer
 from keras.layers import Dense
 from keras.models import Sequential, Model, load_model
 from keras.optimizer_v2.adam import Adam
-from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback, ModelCheckpoint
+from keras.callbacks import ReduceLROnPlateau, EarlyStopping, Callback
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 from src.utils.callbacks.epoch_logger import EpochLogger
 from src.utils.dataset import extend_and_save_arr
 from src.utils.gpu import set_memory_growth
+from src.utils.json_io import save_json, load_json
 
 
 class MountainCarContinuousTrainer:
@@ -198,7 +199,10 @@ class MountainCarContinuousTrainer:
     def get_value_model(self) -> Model:
         model_config = self.value_config["model"]
         if model_config["load"]:
-            return load_model(self.value_model_path)
+            if os.path.exists(self.value_model_path):
+                return load_model(self.value_model_path)
+            else:
+                self.log.warning(f"Model file doesn't exists: {self.value_model_path}. Creating a new one")
 
         layers: List[Layer] = []
         input_dim = self.env.observation_space.shape[0] + self.env.action_space.shape[0]
@@ -245,8 +249,8 @@ class MountainCarContinuousTrainer:
             EpochLogger(),
             ReduceLROnPlateau(patience=10, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
             EarlyStopping(patience=30, min_delta=self.min_delta_value, monitor=self.monitor_value, verbose=1),
-            ModelCheckpoint(self.value_model_path, monitor=self.monitor_value),
-            ScoreValueModel(self, period=self.value_config["score_period"])
+            ScoreModel(os.path.join(self.file_dir, "value-model"), period=self.value_config["score_period"],
+                       model=self.value_model, score_func=self.score_value_model)
         ]
         self.log.info("Training value model")
 
@@ -358,8 +362,8 @@ class MountainCarContinuousTrainer:
             EpochLogger(),
             ReduceLROnPlateau(patience=10, min_delta=self.min_delta_policy, monitor=self.monitor_policy, verbose=1),
             EarlyStopping(patience=30, min_delta=self.min_delta_policy, monitor=self.monitor_policy, verbose=1),
-            ModelCheckpoint(self.policy_model_path, monitor=self.monitor_policy),
-            ScorePolicyModel(self, period=self.policy_config["score_period"])
+            ScoreModel(os.path.join(self.file_dir, "policy-model"), period=self.policy_config["score_period"],
+                       model=self.policy_model, score_func=self.score_policy_model)
         ]
         self.log.info("Training policy model")
         self.policy_model.fit(
@@ -387,26 +391,27 @@ class MountainCarContinuousTrainer:
             self.score_policy_model()
 
 
-class ScoreValueModel(Callback):
-    def __init__(self, trainer: MountainCarContinuousTrainer, period=10):
+class ScoreModel(Callback):
+
+    def __init__(self, save_path: str, score_func: Callable[[], float], model: Model, period: int = 10):
         super().__init__()
-        self.trainer = trainer
+        self.save_path = save_path
+        self.model_save_path = f"{self.save_path}.h5"
+        self.score_save_path = f"{self.save_path}_score.json"
+        self.score_func = score_func
         self.period = period
+        self.model = model
+        self.best_score = -np.inf
+        if os.path.exists(self.score_save_path):
+            self.best_score = load_json(self.score_save_path)
 
     def on_epoch_end(self, epoch, logs=None):
         if (epoch + 1) % self.period == 0:
-            self.trainer.score_value_model()
-
-
-class ScorePolicyModel(Callback):
-    def __init__(self, trainer: MountainCarContinuousTrainer, period=10):
-        super().__init__()
-        self.trainer = trainer
-        self.period = period
-
-    def on_epoch_end(self, epoch, logs=None):
-        if (epoch + 1) % self.period == 0:
-            self.trainer.score_policy_model()
+            score = self.score_func()
+            if score >= self.best_score:
+                self.best_score = score
+                self.model.save(f"{self.save_path}.h5")
+                save_json(self.best_score, self.score_save_path)
 
 
 if __name__ == "__main__":

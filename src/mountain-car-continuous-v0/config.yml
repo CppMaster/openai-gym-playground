@@ -1,12 +1,12 @@
 run:
-  file_dir: "temp/v9"
+  file_dir: "temp/trash"
 
 env:
   name: MountainCarContinuous-v0
   max_step: 200
 
 value:
-  n_sim: 0
+  n_sim: 1000
   max_pos_episodes: null # Optional[int]
   at_most_n_neg_episodes_per_pos: null # Optional[float]
   reward:
@@ -17,7 +17,7 @@ value:
     discount: 0.5
     end_reward_scale: 0. # 100.
     step_reward_scale: 1.
-  load_dataset: true
+  load_dataset: True
   val_split: 0.1
   extreme_action_chance: 1.0
   epochs: 10000
