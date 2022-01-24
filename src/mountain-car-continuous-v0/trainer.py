@@ -2,6 +2,7 @@ import os.path
 from copy import deepcopy
 from typing import List, Optional, Tuple, Callable
 import logging
+import shutil
 
 import gym
 import numpy as np
@@ -29,6 +30,7 @@ class MountainCarContinuousTrainer:
 
         self.file_dir = self.config["run"]["file_dir"]
         os.makedirs(self.file_dir, exist_ok=True)
+        shutil.copy(config_path, os.path.join(self.file_dir, "config.yml"))
 
         self.log = logging.getLogger("")
         self.setup_logs()
@@ -39,7 +41,7 @@ class MountainCarContinuousTrainer:
         self.observation_size: int = self.env.observation_space.shape[0]
 
         self.value_config = self.config["value"]
-        self.n_warmup_sim: int = self.value_config["n_sim"]
+        self.n_warmup_sim: int = self.value_config["n_warmup_sim"]
         self.max_pos_episodes: Optional[int] = self.value_config["max_pos_episodes"]
         self.max_pos_episodes: Optional[int] = self.value_config["max_pos_episodes"]
         self.at_most_n_neg_episodes_per_pos: Optional[float] = self.value_config["at_most_n_neg_episodes_per_pos"]
@@ -55,6 +57,13 @@ class MountainCarContinuousTrainer:
         self.y_reward_value: np.ndarray = np.empty(0)
         self.value_model: Optional[Model] = None
         self.value_model_path: str = f"{self.file_dir}/value-model.h5"
+        self.value_reward_discount: float = self.value_config["reward"]["discount"]
+        self.value_discount_matrix: Optional[np.ndarray] = None
+        if self.value_reward_discount:
+            self.value_discount_matrix = np.zeros((self.max_step * 2, self.max_step))
+            discounts = np.array([np.power(self.value_reward_discount, x) for x in range(self.max_step)])
+            for x in range(self.max_step):
+                self.value_discount_matrix[x:x+self.max_step, x] = discounts
 
         self.eval_config = self.config["eval"]
         self.score_n_simulations: int = self.eval_config["n_sim"]
@@ -120,15 +129,6 @@ class MountainCarContinuousTrainer:
         def do_stop_n_pos_episodes() -> bool:
             return self.max_pos_episodes is not None and pos_episodes >= self.max_pos_episodes
 
-        reward_discount: float = self.value_config["reward"]["discount"]
-        if reward_discount:
-            discount_matrix = np.zeros((self.max_step * 2, self.max_step))
-            discounts = np.array([np.power(reward_discount, x) for x in range(self.max_step)])
-            for x in range(self.max_step):
-                discount_matrix[x:x+self.max_step, x] = discounts
-        else:
-            discount_matrix = None
-
         for _ in tqdm(range(self.n_warmup_sim)):
 
             if do_stop_n_pos_episodes():
@@ -156,11 +156,11 @@ class MountainCarContinuousTrainer:
                 if done:
                     break
 
-            if reward_discount:
+            if self.value_reward_discount:
                 discounted_rewards = deepcopy(rewards)
                 n_padding = self.max_step * 2 - len(discounted_rewards)
                 discounted_rewards = discounted_rewards + [discounted_rewards[-1]] * n_padding
-                discounted_rewards = np.matmul(np.array(discounted_rewards), discount_matrix)
+                discounted_rewards = np.matmul(np.array(discounted_rewards), self.value_discount_matrix)
                 rewards = discounted_rewards[:len(rewards)]
 
             end_shaped_reward = self.get_end_shaped_reward(observations)
@@ -184,8 +184,97 @@ class MountainCarContinuousTrainer:
 
         return x_obs_arr, x_action_arr, y_reward_arr
 
-    def create_value_dataset(self):
-        self.x_obs_value_arr, self.x_action_value_arr, self.y_reward_value_arr = self.get_warmup_value_dataset()
+    def get_incremental_value_dataset(self) -> Tuple[List[List[float]], List[List[float]], List[List[float]]]:
+
+        self.log.info("Creating incremental value dataset")
+
+        x_obs_arr = []
+        x_action_arr = []
+        y_reward_arr = []
+
+        n_incremental_sim: int = self.value_config["n_incremental_sim"]
+        n_sim_in_batch: int = self.value_config["n_sim_in_batch"]
+        n_batches = int(np.ceil(n_incremental_sim / n_sim_in_batch))
+
+        class Simulation:
+            def __init__(self, env_name: str, max_step: int, step_shaped_reward_func: Callable[[List[float]], float]):
+                self.env = gym.make(env_name)
+                self.max_step = max_step
+                self.observations = []
+                self.actions = []
+                self.rewards = []
+                self.is_done = False
+                self.observation = self.env.reset()
+                self.step_shaped_reward_func = step_shaped_reward_func
+
+            def step(self, step_action):
+                observation, reward, done, info = self.env.step(step_action)
+                reward += self.step_shaped_reward_func(observation)
+
+                self.observations.append(observation)
+                self.actions.append(step_action)
+                self.rewards.append(reward)
+                self.observation = observation
+                self.is_done |= done
+
+        exploitation_chance = self.value_config["exploitation"]["constant"]
+        for _ in range(n_batches):
+            simulations = [Simulation(self.env_config["name"], self.max_step, self.get_step_shaped_reward)
+                           for _ in range(n_sim_in_batch)]
+
+            for _ in range(self.max_step):
+
+                deterministic_sims = [not simulations[i].is_done and np.random.random() < exploitation_chance
+                                      for i in range(n_sim_in_batch)]
+                samples = []
+                for i, deterministic_sim in enumerate(deterministic_sims):
+                    if not deterministic_sim:
+                        continue
+                    obs = simulations[i].observation
+                    samples.append(np.concatenate([obs, [-1.0]]))
+                    samples.append(np.concatenate([obs, [1.0]]))
+                x_action = np.array(samples)
+                pred = self.value_model.predict(x_action, batch_size=len(samples))
+                pred_index = 0
+                actions = []
+                for i in range(n_sim_in_batch):
+                    if deterministic_sims[i]:
+                        action = np.array([-1.0] if pred[pred_index * 2][0] > pred[pred_index * 2 + 1][0] else [1.0])
+                        pred_index += 1
+                    else:
+                        if np.random.random() < self.extreme_action_chance:
+                            action = np.array([1.0 if np.random.random() > 0.5 else -1.0])
+                        else:
+                            action = self.env.action_space.sample()
+                    actions.append(action)
+                for i, sim in enumerate(simulations):
+                    if not sim.is_done:
+                        sim.step(actions[i])
+                assert pred_index == sum(deterministic_sims), "Not all pred values were used"
+
+            for i, sim in enumerate(simulations):
+                if self.value_reward_discount:
+                    discounted_rewards = deepcopy(sim.rewards)
+                    n_padding = self.max_step * 2 - len(discounted_rewards)
+                    discounted_rewards = discounted_rewards + [discounted_rewards[-1]] * n_padding
+                    discounted_rewards = np.matmul(np.array(discounted_rewards), self.value_discount_matrix)
+                    sim.rewards = discounted_rewards[:len(sim.rewards)]
+
+                end_shaped_reward = self.get_end_shaped_reward(sim.observations)
+                if self.value_config["reward"]["all_steps_have_end_value"]:
+                    sim.rewards = [np.sum(sim.rewards)] * len(sim.rewards)
+                for j in range(len(sim.rewards)):
+                    sim.rewards[j] += end_shaped_reward
+
+                x_obs_arr.extend(sim.observations)
+                x_action_arr.extend(sim.actions)
+                y_reward_arr.extend(sim.rewards)
+
+        return x_obs_arr, x_action_arr, y_reward_arr
+
+    def create_value_dataset(self, incremental: bool = False):
+        dataset_func = self.get_incremental_value_dataset if incremental else self.get_warmup_value_dataset
+        self.x_obs_value_arr, self.x_action_value_arr, self.y_reward_value_arr = dataset_func()
         if self.value_config["load_dataset"]:
             extend_and_save_arr(self.x_obs_value_arr, f"{self.file_dir}/x_obs_arr.p")
             extend_and_save_arr(self.x_action_value_arr, f"{self.file_dir}/x_action_arr.p")
@@ -376,14 +465,24 @@ class MountainCarContinuousTrainer:
     def run(self):
 
         self.log.info("Trainer started")
-
-        self.create_value_dataset()
-        value_x, value_y = self.create_value_training_data()
         self.value_model = self.get_value_model()
+
+        self.create_value_dataset(False)
+        value_x, value_y = self.create_value_training_data()
+
         if self.value_config["initial_score"]:
             self.score_value_model()
         self.train_value_model(value_x, value_y)
         self.score_value_model()
+
+        for incremental_step in range(self.value_config["n_incremental_step"]):
+            self.log.info(f"Incremental step: {incremental_step + 1}/{self.value_config['n_incremental_step']}")
+            self.create_value_dataset(True)
+            value_x, value_y = self.create_value_training_data()
+            if self.value_config["model"]["load"]:
+                self.value_model = self.get_value_model()
+            self.train_value_model(value_x, value_y)
+            self.score_value_model()
 
         if not self.policy_config["skip"]:
             self.create_policy_dataset()
