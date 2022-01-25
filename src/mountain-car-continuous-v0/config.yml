@@ -1,12 +1,13 @@
 run:
-  file_dir: "temp/v12"
+  file_dir: "temp/v14"
 
 env:
   name: MountainCarContinuous-v0
   max_step: 200
 
 value:
-  n_warmup_sim: 200000
+  skip: false
+  n_warmup_sim: 0  # 200000
   max_pos_episodes: null # Optional[int]
   at_most_n_neg_episodes_per_pos: 10 # Optional[float]
   reward:
@@ -19,14 +20,17 @@ value:
     step_reward_scale: 0. # 1.0
     all_steps_have_end_value: true
   load_dataset: false
-  exploitation:
-    constant: 0.5 # Optional[float]
+  exploration:
+    constant: 0.5
+    step_factor: 0.5  # Optional[float]
   val_split: 0.1
-  n_incremental_step: 10
-  n_incremental_sim: 1000
-  n_sim_in_batch: 1000
-  extreme_action_chance: 1.0
-  epochs: 10000
+  n_incremental_step: 20
+  n_incremental_sim: 10000
+  n_sim_in_batch: 10000
+  extreme_action_chance:
+    constant: 1.0
+    step_factor: 0.5  # Optional[float]
+  epochs: 1000
   model:
     load: true
     layers:
@@ -51,13 +55,13 @@ value:
   score_period: 10
 
 policy:
-  skip: true
+  skip: false
   n_sim: 10
   n_policy_samples: 2000
   n_action_samples: 20
-  load_dataset: true
-  epochs: 100
-  lr: 1.e-5
+  load_dataset: false
+  epochs: 10000
+  lr: 1.e-4
   min_delta: 1.e-5
   monitor: loss
   batch_size: 50

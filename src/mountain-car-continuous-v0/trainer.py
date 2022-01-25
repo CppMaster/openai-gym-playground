@@ -45,7 +45,7 @@ class MountainCarContinuousTrainer:
         self.max_pos_episodes: Optional[int] = self.value_config["max_pos_episodes"]
         self.max_pos_episodes: Optional[int] = self.value_config["max_pos_episodes"]
         self.at_most_n_neg_episodes_per_pos: Optional[float] = self.value_config["at_most_n_neg_episodes_per_pos"]
-        self.extreme_action_chance: float = self.value_config["extreme_action_chance"]
+        self.extreme_action_chance: float = self.value_config["extreme_action_chance"]["constant"]
         self.value_scale: float = self.value_config["label_scale"]
         self.min_delta_value: float = self.value_config["min_delta"]
         self.monitor_value: str = self.value_config["monitor"]
@@ -63,7 +63,7 @@ class MountainCarContinuousTrainer:
             self.value_discount_matrix = np.zeros((self.max_step * 2, self.max_step))
             discounts = np.array([np.power(self.value_reward_discount, x) for x in range(self.max_step)])
             for x in range(self.max_step):
-                self.value_discount_matrix[x:x+self.max_step, x] = discounts
+                self.value_discount_matrix[x:x + self.max_step, x] = discounts
 
         self.eval_config = self.config["eval"]
         self.score_n_simulations: int = self.eval_config["n_sim"]
@@ -184,7 +184,8 @@ class MountainCarContinuousTrainer:
 
         return x_obs_arr, x_action_arr, y_reward_arr
 
-    def get_incremental_value_dataset(self) -> Tuple[List[List[float]], List[List[float]], List[List[float]]]:
+    def get_incremental_value_dataset(self, step: int = 1) \
+            -> Tuple[List[List[float]], List[List[float]], List[List[float]]]:
 
         self.log.info("Creating incremental value dataset")
 
@@ -217,32 +218,46 @@ class MountainCarContinuousTrainer:
                 self.observation = observation
                 self.is_done |= done
 
-        exploitation_chance = self.value_config["exploitation"]["constant"]
-        for _ in range(n_batches):
+        exploration_chance: float = self.value_config["exploration"]["constant"]
+        exploration_step_factor: Optional[float] = self.value_config["exploration"]["step_factor"]
+        exploration_chance = np.power(exploration_step_factor, step) if exploration_step_factor else exploration_chance
+        extreme_action_change_step_factor: Optional[float] = self.value_config["extreme_action_chance"]["step_factor"]
+        extreme_action_chance = np.power(extreme_action_change_step_factor, step) \
+            if extreme_action_change_step_factor else self.extreme_action_chance
+
+        for _ in tqdm(range(n_batches)):
             simulations = [Simulation(self.env_config["name"], self.max_step, self.get_step_shaped_reward)
                            for _ in range(n_sim_in_batch)]
 
             for _ in range(self.max_step):
 
-                deterministic_sims = [not simulations[i].is_done and np.random.random() < exploitation_chance
+                deterministic_sims = [not simulations[i].is_done and np.random.random() > exploration_chance
                                       for i in range(n_sim_in_batch)]
+
+                query_actions = [self.env.action_space.sample() for _ in range(self.sample_n_actions)] + \
+                                [np.array([-1.0]), np.array([1.0]), np.array([0.0])]
+                n_actions = len(query_actions)
+
                 samples = []
                 for i, deterministic_sim in enumerate(deterministic_sims):
                     if not deterministic_sim:
                         continue
                     obs = simulations[i].observation
-                    samples.append(np.concatenate([obs, [-1.0]]))
-                    samples.append(np.concatenate([obs, [1.0]]))
+                    for query_action in query_actions:
+                        samples.append(np.concatenate([obs, query_action]))
+
                 x_action = np.array(samples)
                 pred = self.value_model.predict(x_action, batch_size=len(samples))
                 pred_index = 0
                 actions = []
                 for i in range(n_sim_in_batch):
                     if deterministic_sims[i]:
-                        action = np.array([-1.0] if pred[pred_index * 2][0] > pred[pred_index * 2 + 1][0] else [1.0])
+                        action = query_actions[np.argmax(
+                            pred[pred_index * n_actions: (pred_index + 1) * n_actions], axis=0
+                        )[0]]
                         pred_index += 1
                     else:
-                        if np.random.random() < self.extreme_action_chance:
+                        if np.random.random() < extreme_action_chance:
                             action = np.array([1.0 if np.random.random() > 0.5 else -1.0])
                         else:
                             action = self.env.action_space.sample()
@@ -272,9 +287,9 @@ class MountainCarContinuousTrainer:
 
         return x_obs_arr, x_action_arr, y_reward_arr
 
-    def create_value_dataset(self, incremental: bool = False):
-        dataset_func = self.get_incremental_value_dataset if incremental else self.get_warmup_value_dataset
-        self.x_obs_value_arr, self.x_action_value_arr, self.y_reward_value_arr = dataset_func()
+    def create_value_dataset(self, incremental: int = 0):
+        self.x_obs_value_arr, self.x_action_value_arr, self.y_reward_value_arr = \
+            self.get_incremental_value_dataset(incremental) if incremental else self.get_warmup_value_dataset()
         if self.value_config["load_dataset"]:
             extend_and_save_arr(self.x_obs_value_arr, f"{self.file_dir}/x_obs_arr.p")
             extend_and_save_arr(self.x_action_value_arr, f"{self.file_dir}/x_action_arr.p")
@@ -328,7 +343,7 @@ class MountainCarContinuousTrainer:
                 total_reward += reward
                 if done:
                     break
-            self.log.debug(f"Score: {total_reward},\tmax distance: {np.max(np.array(observations)[:,0])}")
+            self.log.debug(f"Score: {total_reward},\tmax distance: {np.max(np.array(observations)[:, 0])}")
             scores.append(total_reward)
 
         score = float(np.mean(scores))
@@ -374,9 +389,8 @@ class MountainCarContinuousTrainer:
         for _ in tqdm(range(self.n_policy_sim)):
             observation = self.env.reset()
             for t in range(self.max_step):
-
                 query_actions = [self.env.action_space.sample() for _ in range(self.sample_n_actions)] \
-                                + [np.array([-1.0]), [np.array([1.0])]]
+                                + [np.array([-1.0]), np.array([1.0]), np.array([0.0])]
                 query = np.array(
                     [np.concatenate([observation, query_actions[i]]) for i in range(self.sample_n_actions)]
                 )
@@ -393,13 +407,13 @@ class MountainCarContinuousTrainer:
             random_query = []
             for s_i in range(self.n_policy_samples):
                 query_actions = [self.env.action_space.sample() for _ in range(self.sample_n_actions)] \
-                                + [np.array([-1.0]), [np.array([1.0])]]
+                                + [np.array([-1.0]), np.array([1.0]), np.array([0.0])]
                 observation = observations[s_i]
                 query = [np.concatenate([observation, query_actions[i]]) for i in range(self.sample_n_actions)]
                 random_query.extend(query)
             random_query = np.array(random_query)
 
-            pred = self.value_model.predict(random_query, batch_size=self.n_policy_samples*self.sample_n_actions)
+            pred = self.value_model.predict(random_query, batch_size=self.n_policy_samples * self.sample_n_actions)
             situations = np.split(pred, self.n_policy_samples)
             for s_i, situation in enumerate(situations):
                 best_action_index = np.argmax(situation, axis=0)
@@ -467,22 +481,26 @@ class MountainCarContinuousTrainer:
         self.log.info("Trainer started")
         self.value_model = self.get_value_model()
 
-        self.create_value_dataset(False)
-        value_x, value_y = self.create_value_training_data()
+        if not self.value_config["skip"]:
 
-        if self.value_config["initial_score"]:
-            self.score_value_model()
-        self.train_value_model(value_x, value_y)
-        self.score_value_model()
+            if self.n_warmup_sim:
 
-        for incremental_step in range(self.value_config["n_incremental_step"]):
-            self.log.info(f"Incremental step: {incremental_step + 1}/{self.value_config['n_incremental_step']}")
-            self.create_value_dataset(True)
-            value_x, value_y = self.create_value_training_data()
-            if self.value_config["model"]["load"]:
-                self.value_model = self.get_value_model()
-            self.train_value_model(value_x, value_y)
-            self.score_value_model()
+                self.create_value_dataset(0)
+                value_x, value_y = self.create_value_training_data()
+
+                if self.value_config["initial_score"]:
+                    self.score_value_model()
+                self.train_value_model(value_x, value_y)
+                self.score_value_model()
+
+            for incremental_step in range(self.value_config["n_incremental_step"]):
+                self.log.info(f"Incremental step: {incremental_step + 1}/{self.value_config['n_incremental_step']}")
+                self.create_value_dataset(incremental_step + 1)
+                value_x, value_y = self.create_value_training_data()
+                if self.value_config["model"]["load"]:
+                    self.value_model = self.get_value_model()
+                self.train_value_model(value_x, value_y)
+                self.score_value_model()
 
         if not self.policy_config["skip"]:
             self.create_policy_dataset()
