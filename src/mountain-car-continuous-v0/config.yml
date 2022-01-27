@@ -1,5 +1,5 @@
 run:
-  file_dir: "temp/v14"
+  file_dir: "temp/v17"
 
 env:
   name: MountainCarContinuous-v0
@@ -30,7 +30,7 @@ value:
   extreme_action_chance:
     constant: 1.0
     step_factor: 0.5  # Optional[float]
-  epochs: 1000
+  epochs: 100
   model:
     load: true
     layers:
@@ -46,7 +46,7 @@ value:
       - type: dense
         units: 1
         activation: linear
-  lr: 1.e-5
+  lr: 1.e-4
   min_delta: 1.e-7
   monitor: val_loss
   label_scale: 1.e-2
@@ -56,8 +56,8 @@ value:
 
 policy:
   skip: false
-  n_sim: 10
-  n_policy_samples: 2000
+  n_sim: 100
+  n_policy_samples: 20000
   n_action_samples: 20
   load_dataset: false
   epochs: 10000
