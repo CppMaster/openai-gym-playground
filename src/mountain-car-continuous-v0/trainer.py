@@ -478,7 +478,7 @@ class MountainCarContinuousTrainer:
 
     def run(self):
 
-        self.log.info("Trainer started")
+        self.log.info(f"Trainer started in dir: {self.file_dir}")
         self.value_model = self.get_value_model()
 
         if not self.value_config["skip"]:
