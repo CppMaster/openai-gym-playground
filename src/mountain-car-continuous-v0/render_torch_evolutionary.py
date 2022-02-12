@@ -1,11 +1,12 @@
 import gym
 import torch
-
+from gym.wrappers.monitoring import video_recorder
 
 from torch_evolutionary import Agent
 
-env = gym.make("MountainCarContinuous-v0")
 
+env = gym.make("MountainCarContinuous-v0")
+vid = video_recorder.VideoRecorder(env, path=f"temp/best/evolution_video.mp4")
 
 def show_video_of_model(agent_):
     while True:
@@ -14,7 +15,8 @@ def show_video_of_model(agent_):
         done = False
         total_reward = 0
         while not done:
-            env.render()
+            # env.render()
+            vid.capture_frame()
 
             action = agent_.act(state)
             print(state, action)
@@ -25,6 +27,7 @@ def show_video_of_model(agent_):
             if done:
                 break
         print(total_reward)
+        return
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
