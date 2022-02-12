@@ -1,5 +1,6 @@
 import gym
 import numpy as np
+from keras.callbacks import ModelCheckpoint
 from keras.layers import Dense
 from keras.models import Sequential
 
@@ -9,14 +10,14 @@ x_action_arr = []
 y_reward_arr = []
 sim_len_arr = []
 
-n_warmup_sim = 10
-n_incremental_sim = 10
+n_warmup_sim = 100
+n_incremental_sim = 100
 max_step = 200
 keep_n_simulations = 100
 trainings_steps = 20
 score_n_simulations = 10
 chance_for_random = 0.5
-epochs = 100
+epochs = 1000
 batch_size = 50
 
 env = gym.make('CartPole-v0')
@@ -52,8 +53,10 @@ def create_training_data():
 
     return np.concatenate([x_obs, x_action], axis=1), y_reward
 
+
 x, y = create_training_data()
-model.fit(x, y, batch_size=50, epochs=epochs, verbose=0)
+callbacks = [ModelCheckpoint("temp/cartpole.h5", monitor="loss")]
+model.fit(x, y, batch_size=50, epochs=epochs, verbose=2, callbacks=callbacks)
 
 
 def score_model():
@@ -110,7 +113,7 @@ for training_step in range(trainings_steps):
         y_reward_arr.extend([[total_reward]] * total_reward)
 
     x, y = create_training_data()
-    model.fit(x, y, batch_size=50, epochs=epochs, verbose=0)
+    model.fit(x, y, batch_size=50, epochs=epochs, verbose=2, callbacks=callbacks)
     score_model()
 
 env.close()

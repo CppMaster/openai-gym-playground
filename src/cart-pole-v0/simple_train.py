@@ -1,5 +1,6 @@
 import gym
 import numpy as np
+from keras.callbacks import ModelCheckpoint
 from keras.layers import Dense
 from keras.models import Sequential
 from keras.optimizer_v2.adam import Adam
@@ -39,8 +40,7 @@ model = Sequential([
     Dense(units=1, activation="relu")
 ])
 model.compile(Adam(lr=0.0001), "mse")
-model.fit(x, y_reward, batch_size=100, epochs=100)
-model.save("temp/cartpole.h5")
+model.fit(x, y_reward, batch_size=100, epochs=100, callbacks=ModelCheckpoint("temp/cartpole.h5", monitor="loss"))
 
 # model = load_model("temp/cartpole.h5")
 
