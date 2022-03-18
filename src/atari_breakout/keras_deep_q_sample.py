@@ -145,6 +145,7 @@ update_target_network = 10000
 loss_function = keras.losses.Huber()
 
 model.compile(optimizer, loss_function)
+model_target.compile(optimizer, loss_function)
 
 while True:  # Run until solved
     state = np.array(env.reset())
