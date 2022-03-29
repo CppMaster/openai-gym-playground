@@ -1,3 +1,4 @@
+import gym
 import tensorflow as tf
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 import numpy as np
@@ -8,11 +9,11 @@ from src.utils.gpu import set_memory_growth
 
 
 set_memory_growth()
-run_suffix = "init"
+run_suffix = "no-frameskip"
 seed = 42
 gamma = 0.99  # Discount factor for past rewards
 
-env = make_atari("Qbert-v0")
+env = make_atari("QbertNoFrameskip-v4")
 env = wrap_deepmind(env, frame_stack=True, scale=True)
 env.seed(seed)
 
@@ -35,6 +36,7 @@ summary_writer = tf.summary.create_file_writer(f"temp/tf-summary_{run_suffix}")
 
 state_history = []
 action_probs_history = []
+action_history = []
 critic_value_history = []
 rewards_history = []
 running_reward = 0
@@ -62,10 +64,13 @@ while True:  # Run until solved
 
             # Sample action from action probability distribution
             action = np.random.choice(num_actions, p=np.squeeze(action_probs))
+            action_history.append(action)
             action_probs_history.append(tf.math.log(action_probs[0, action]))
 
             # Apply the sampled action in our environment
             state, reward, done, _ = env.step(action)
+            with summary_writer.as_default(episode_count):
+                tf.summary.scalar("Step reward", reward)
 
             episode_reward += reward
 
@@ -119,14 +124,25 @@ while True:  # Run until solved
 
         model.save_weights(f"temp/keras-actor-critic_{run_suffix}.h5")
 
+        with summary_writer.as_default(episode_count):
+            tf.summary.scalar("Total loss", np.mean(actor_losses) + np.mean(critic_losses))
+            tf.summary.scalar("Actor loss", np.mean(actor_losses))
+            tf.summary.scalar("Critic loss", np.mean(critic_losses))
+            tf.summary.histogram("Action", action_history, buckets=num_actions)
+
         # Clear the loss and reward history
         action_probs_history.clear()
         critic_value_history.clear()
         rewards_history.clear()
         state_history.clear()
+        action_history.clear()
 
     # Log details
     episode_count += 1
+    with summary_writer.as_default(episode_count):
+        tf.summary.scalar("Episode reward", episode_reward)
+        tf.summary.scalar("Running reward", running_reward)
+
     if episode_count % 10 == 0:
         template = "running reward: {:.2f} at episode {}, last reward {}"
         print(template.format(running_reward, episode_count, episode_reward))
