@@ -4,35 +4,51 @@ from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 import numpy as np
 from keras import layers
 from tensorflow import keras
+from keras.activations import leaky_relu
+from keras.regularizers import l1_l2
 
 from src.utils.gpu import set_memory_growth
+import matplotlib.pyplot as plt
 
 
 set_memory_growth()
-run_suffix = "no-frameskip"
+run_suffix = "max-pooling_dense-bias-regularizer_leaky-relu-01_lose-life-reward-25_min-log-prob-02"
 seed = 42
 gamma = 0.99  # Discount factor for past rewards
+lose_life_reward = 25
+batch_size = 1000000
+min_log_prob = 0.2
 
 env = make_atari("QbertNoFrameskip-v4")
-env = wrap_deepmind(env, frame_stack=True, scale=True)
+env = wrap_deepmind(env, frame_stack=True, scale=True, clip_rewards=False)
 env.seed(seed)
 
 eps = np.finfo(np.float32).eps.item()
 num_actions = env.action_space.n
 
+
 inputs = layers.Input(shape=env.observation_space.shape)
-layer1 = layers.Conv2D(32, 8, strides=4, activation="relu")(inputs)
-layer2 = layers.Conv2D(64, 4, strides=2, activation="relu")(layer1)
-layer3 = layers.Conv2D(64, 3, strides=1, activation="relu")(layer2)
+layer1 = layers.Conv2D(32, 3)(inputs)
+layer1 = layers.LeakyReLU(0.1)(layer1)
+layer1 = layers.MaxPooling2D((2, 2))(layer1)
+layer2 = layers.Conv2D(64, 3)(layer1)
+layer2 = layers.LeakyReLU(0.1)(layer2)
+layer2 = layers.MaxPooling2D((2, 2))(layer2)
+layer3 = layers.Conv2D(128, 3)(layer2)
+layer3 = layers.LeakyReLU(0.1)(layer3)
+layer3 = layers.MaxPooling2D((2, 2))(layer3)
 common = layers.Flatten()(layer3)
-action = layers.Dense(num_actions, activation="softmax")(common)
-critic = layers.Dense(1)(common)
-model = keras.Model(inputs=inputs, outputs=[action, critic])
+action_layer = layers.Dense(num_actions, activation="softmax")(common)
+critic = layers.Dense(64, bias_regularizer=l1_l2(l1=0.01, l2=0.01))(common)
+critic = layers.LeakyReLU(0.1)(critic)
+critic = layers.Dense(1, bias_regularizer=l1_l2(l1=0.01, l2=0.01))(critic)
+model = keras.Model(inputs=inputs, outputs=[action_layer, critic])
 
 optimizer = keras.optimizers.Adam(learning_rate=0.01)
 huber_loss = keras.losses.Huber()
 
 summary_writer = tf.summary.create_file_writer(f"temp/tf-summary_{run_suffix}")
+img_path_dir = f"temp/images"
 
 state_history = []
 action_probs_history = []
@@ -44,17 +60,32 @@ episode_count = 0
 
 frame_count = 0
 
+render = False
+save_rendered_frames = False
+
 while True:  # Run until solved
     state = env.reset()
     episode_reward = 0
-    with tf.GradientTape() as tape:
+    with tf.GradientTape(persistent=True) as tape:
         while True:
-            # env.render()
+            if render:
+                env.render()
             # of the agent in a pop up window.
 
             frame_count += 1
 
             state = tf.convert_to_tensor(state)
+
+            if save_rendered_frames:
+                fig, axs = plt.subplots(2, 4, clear=True)
+                n_frames = state.shape[2]
+                for x in range(n_frames):
+                    axs[0, x].imshow(state[:, :, x])
+                    if x < n_frames - 1:
+                        axs[1, x].imshow(np.abs(state[:, :, x + 1] - state[:, :, x]))
+                axs[1, n_frames - 1].imshow(np.max(state, axis=2))
+                plt.savefig(f"{img_path_dir}/frames_{frame_count}.png")
+
             state = tf.expand_dims(state, 0)
 
             # Predict action probabilities and estimated future rewards
@@ -68,11 +99,17 @@ while True:  # Run until solved
             action_probs_history.append(tf.math.log(action_probs[0, action]))
 
             # Apply the sampled action in our environment
+            life_before = env.unwrapped.ale.lives()
+
             state, reward, done, _ = env.step(action)
-            with summary_writer.as_default(episode_count):
-                tf.summary.scalar("Step reward", reward)
+
+            life_after = env.unwrapped.ale.lives()
 
             episode_reward += reward
+
+            reward += (life_after - life_before) * lose_life_reward
+            with summary_writer.as_default(episode_count):
+                tf.summary.scalar("Step reward", reward)
 
             rewards_history.append(reward)
             state_history.append(state)
@@ -109,6 +146,7 @@ while True:  # Run until solved
             # The actor must be updated so that it predicts an action that leads to
             # high rewards (compared to critic's estimate) with high probability.
             diff = ret - value
+            adjusted_log_prob = tf.math.minimum(log_prob, -min_log_prob)
             actor_losses.append(-log_prob * diff)  # actor loss
 
             # The critic must be updated so that it predicts a better estimate of
@@ -118,9 +156,11 @@ while True:  # Run until solved
             )
 
         # Backpropagation
-        loss_value = sum(actor_losses) + sum(critic_losses)
-        grads = tape.gradient(loss_value, model.trainable_variables)
-        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+        for index in range(0, len(actor_losses), batch_size):
+            index_slice = slice(index, index + batch_size)
+            loss_value = sum(actor_losses[index_slice]) + sum(critic_losses[index_slice])
+            grads = tape.gradient(loss_value, model.trainable_variables)
+            optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
         model.save_weights(f"temp/keras-actor-critic_{run_suffix}.h5")
 
