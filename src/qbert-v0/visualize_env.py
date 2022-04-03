@@ -2,18 +2,21 @@ import gym
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
 
 from baselines.common.atari_wrappers import MaxAndSkipEnv, EpisodicLifeEnv, WarpFrame, ScaledFloatFrame, FrameStack
 
 
 seed = 42
-skip_frames = 4
+skip_frames = 8
 stack_frames = 4
 reward_scale = 1/25
-output_dir = "temp/images/QbestNoFrameskip-v4_skip-frames-4_stack-frames-4"
+env_name = "QbertNoFrameskip-v4"
+output_dir = f"temp/images/{env_name}_skip-frames-{skip_frames}_stack-frames-{stack_frames}"
 os.makedirs(output_dir, exist_ok=True)
+matplotlib.use('Agg')
 
-env = gym.make("QbestNoFrameskip-v4")
+env = gym.make(env_name)
 if skip_frames > 1:
     env = MaxAndSkipEnv(env, skip=skip_frames)
 env = EpisodicLifeEnv(env)
@@ -43,3 +46,6 @@ while True:
         state, reward, done, _ = env.step(action)
 
         frame_count += 1
+
+        if done:
+            break
