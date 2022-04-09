@@ -12,11 +12,11 @@ import matplotlib.pyplot as plt
 
 
 set_memory_growth()
-run_suffix = "max-pooling_dense-bias-regularizer_leaky-relu-01_lose-life-reward-25_min-log-prob-02"
+run_suffix = "max-pooling_dense-bias-regularizer_leaky-relu-01_lose-life-reward-25_min_batch-size-8_lr-0.001"
 seed = 42
 gamma = 0.99  # Discount factor for past rewards
 lose_life_reward = 25
-batch_size = 1000000
+batch_size = 8
 min_log_prob = 0.2
 
 env = make_atari("QbertNoFrameskip-v4")
@@ -44,7 +44,7 @@ critic = layers.LeakyReLU(0.1)(critic)
 critic = layers.Dense(1, bias_regularizer=l1_l2(l1=0.01, l2=0.01))(critic)
 model = keras.Model(inputs=inputs, outputs=[action_layer, critic])
 
-optimizer = keras.optimizers.Adam(learning_rate=0.01)
+optimizer = keras.optimizers.Adam(learning_rate=0.001)
 huber_loss = keras.losses.Huber()
 
 summary_writer = tf.summary.create_file_writer(f"temp/tf-summary_{run_suffix}")
@@ -146,7 +146,6 @@ while True:  # Run until solved
             # The actor must be updated so that it predicts an action that leads to
             # high rewards (compared to critic's estimate) with high probability.
             diff = ret - value
-            adjusted_log_prob = tf.math.minimum(log_prob, -min_log_prob)
             actor_losses.append(-log_prob * diff)  # actor loss
 
             # The critic must be updated so that it predicts a better estimate of
