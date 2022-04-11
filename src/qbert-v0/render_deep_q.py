@@ -4,6 +4,7 @@ import tensorflow as tf
 from baselines.common.atari_wrappers import MaxAndSkipEnv, EpisodicLifeEnv, WarpFrame, ScaledFloatFrame, FrameStack
 from keras.models import load_model
 import time
+import shutil
 
 from src.utils.gpu import set_memory_growth
 
@@ -25,7 +26,8 @@ env = ScaledFloatFrame(env)
 if stack_frames > 1:
     env = FrameStack(env, stack_frames)
 
-model = load_model("temp/render_2.h5")
+shutil.copy("temp/model_deep-q-1_not-capped-rewards_rgb_leaky-relu.h5", "temp/render_last.h5")
+model = load_model("temp/render_last.h5")
 
 while True:
     state = np.array(env.reset())
