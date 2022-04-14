@@ -11,8 +11,11 @@ seed = 42
 skip_frames = 8
 stack_frames = 4
 reward_scale = 1/25
-env_name = "QbertNoFrameskip-v4"
-output_dir = f"temp/images/{env_name}_skip-frames-{skip_frames}_stack-frames-{stack_frames}"
+frame_width = 128
+frame_height = 128
+grayscale = False
+env_name = "AlienNoFrameskip-v4"
+output_dir = f"temp/images/{env_name}_skip-frames-{skip_frames}_stack-frames-{stack_frames}_resolution-{frame_width}-{frame_height}_grayscale-{grayscale}"
 os.makedirs(output_dir, exist_ok=True)
 matplotlib.use('Agg')
 
@@ -20,7 +23,7 @@ env = gym.make(env_name)
 if skip_frames > 1:
     env = MaxAndSkipEnv(env, skip=skip_frames)
 env = EpisodicLifeEnv(env)
-env = WarpFrame(env)
+env = WarpFrame(env, width=frame_width, height=frame_height, grayscale=grayscale)
 env = ScaledFloatFrame(env)
 if stack_frames > 1:
     env = FrameStack(env, stack_frames)
