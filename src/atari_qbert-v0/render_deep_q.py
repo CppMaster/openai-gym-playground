@@ -13,23 +13,20 @@ set_memory_growth()
 
 skip_frames = 4
 stack_frames = 4
-reward_scale = 1/10
+reward_scale = 1/25
 max_steps_per_episode = 10000
-frame_width = 84
-frame_height = 84
-grayscale = True
 
-env_name = "MsPacmanNoFrameskip-v4"
+env_name = "QbertNoFrameskip-v4"
 env = gym.make(env_name)
 if skip_frames > 1:
     env = MaxAndSkipEnv(env, skip=skip_frames)
-env = EpisodicLifeEnv(env)
-env = WarpFrame(env, width=frame_width, height=frame_height, grayscale=grayscale)
+# env = EpisodicLifeEnv(env)
+env = WarpFrame(env, grayscale=False)
 env = ScaledFloatFrame(env)
 if stack_frames > 1:
     env = FrameStack(env, stack_frames)
 
-shutil.copy("temp/model_deep-q-0.h5", "temp/render_last.h5")
+shutil.copy("temp/model_no-episodic-life.h5", "temp/render_last.h5")
 model = load_model("temp/render_last.h5")
 
 while True:

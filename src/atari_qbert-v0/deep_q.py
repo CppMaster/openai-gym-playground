@@ -6,7 +6,6 @@ Last modified: 2020/06/17
 Description: Play Atari Breakout with a Deep Q-Network.
 """
 import gym
-from keras.models import load_model
 
 """
 ## Introduction
@@ -64,7 +63,7 @@ set_memory_growth()
 # Configuration paramaters for the whole setup
 seed = 42
 gamma = 0.99  # Discount factor for past rewards
-epsilon = 0.1  # Epsilon greedy parameter
+epsilon = 1.0  # Epsilon greedy parameter
 epsilon_min = 0.1  # Minimum epsilon greedy parameter
 epsilon_max = 1.0  # Maximum epsilon greedy parameter
 epsilon_interval = (
@@ -74,23 +73,21 @@ batch_size = 32  # Size of batch taken from replay buffer
 max_steps_per_episode = 10000
 skip_frames = 4
 stack_frames = 4
-frame_width = 84
-frame_height = 84
-grayscale = True
-reward_scale = 1/10
+reward_scale = 1/25
 render = False
+lose_life_punishment = 1.0
 
-env_name = "MsPacmanNoFrameskip-v4"
+env_name = "QbertNoFrameskip-v4"
 env = gym.make(env_name)
 if skip_frames > 1:
     env = MaxAndSkipEnv(env, skip=skip_frames)
-env = EpisodicLifeEnv(env)
-env = WarpFrame(env, width=frame_width, height=frame_height, grayscale=grayscale)
+# env = EpisodicLifeEnv(env)
+env = WarpFrame(env, grayscale=False)
 env = ScaledFloatFrame(env)
 if stack_frames > 1:
     env = FrameStack(env, stack_frames)
 
-run_suffix = "deep-q-1_rgb_res-210-160"
+run_suffix = "no-episodic-life"
 
 summary_writer = tf.summary.create_file_writer(f"temp/tf-summary_{run_suffix}")
 
@@ -132,13 +129,10 @@ def create_q_model():
 # The first model makes the predictions for Q-values which are used to
 # make a action.
 model = create_q_model()
-# model = load_model("temp/model_deep-q-0.h5")
 # Build a target model for the prediction of future rewards.
 # The weights of a target model get updated every 10000 steps thus when the
 # loss between the Q-values is calculated the target Q-value is stable.
 model_target = create_q_model()
-# model_target = load_model("temp/model_deep-q-0.h5")
-
 
 
 """
@@ -164,7 +158,7 @@ epsilon_random_frames = 50000
 epsilon_greedy_frames = 1000000.0
 # Maximum replay length
 # Note: The Deepmind paper suggests 1000000 however this causes memory issues
-max_memory_length = 5000
+max_memory_length = 20000
 # Train the model after 4 actions
 update_after_actions = 4
 # How often to update the target network
@@ -178,6 +172,7 @@ model_target.compile(optimizer, loss_function)
 while True:  # Run until solved
     state = np.array(env.reset())
     episode_reward = 0
+    prev_lives = env.unwrapped.ale.lives()
 
     for timestep in range(1, max_steps_per_episode):
         if render:
@@ -207,7 +202,13 @@ while True:  # Run until solved
         state_next = np.array(state_next)
 
         reward *= reward_scale
+
         episode_reward += reward
+
+        lives = env.unwrapped.ale.lives()
+        if lives < prev_lives:
+            reward -= lose_life_punishment
+        prev_lives = lives
 
         # Save actions and states in replay buffer
         action_history.append(action)
@@ -241,7 +242,7 @@ while True:  # Run until solved
             )
 
             # If final frame set the last value to -1
-            updated_q_values = updated_q_values * (1 - done_sample) - done_sample
+            # updated_q_values = updated_q_values * (1 - done_sample) - done_sample
 
             # Create a mask so we only calculate loss on the updated Q-values
             masks = tf.one_hot(action_sample, num_actions)
