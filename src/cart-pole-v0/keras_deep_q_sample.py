@@ -2,7 +2,7 @@ from typing import List
 import gym
 import numpy as np
 import tensorflow as tf
-from keras.layers import Dense
+from keras.layers import Dense, LeakyReLU
 from keras.models import Sequential
 from tensorflow import keras
 from src.utils.gpu import set_memory_growth
@@ -12,7 +12,7 @@ import seaborn as sns
 
 set_memory_growth()
 
-run_suffix = 6
+run_suffix = "1_small_model"
 
 # Configuration paramaters for the whole setup
 seed = 42
@@ -23,25 +23,22 @@ epsilon_max = 1.0  # Maximum epsilon greedy parameter
 epsilon_interval = (
         epsilon_max - epsilon_min
 )  # Rate at which to reduce chance of random action being taken
-batch_size = 32  # Size of batch taken from replay buffer
+batch_size = 128  # Size of batch taken from replay buffer
 max_steps_per_episode = 200
 
-env = gym.make('MountainCarContinuous-v0')
+env = gym.make('CartPole-v0')
 env.seed(seed)
 
-num_actions = 21
-actions = np.linspace(-1.0, 1.0, num=num_actions)
-
+num_actions = env.action_space.n
 summary_writer = tf.summary.create_file_writer(f"temp/tf-summary_{run_suffix}")
 
 def create_q_model():
 
     value_model = Sequential([
-        Dense(units=8, input_dim=env.observation_space.shape[0], activation="relu"),
-        Dense(units=8, activation="relu"),
+        Dense(units=4, input_dim=env.observation_space.shape[0]),
+        LeakyReLU(0.1),
         Dense(units=num_actions, activation="linear")
     ])
-
     return value_model
 
 
@@ -55,7 +52,7 @@ model_target = create_q_model()
 
 # In the Deepmind paper they use RMSProp however then Adam optimizer
 # improves training time
-optimizer = keras.optimizers.Adam(learning_rate=0.00025, clipnorm=1.0)
+optimizer = keras.optimizers.Adam(learning_rate=0.0025, clipnorm=1.0)
 # Using huber loss for stability
 
 loss_function = keras.losses.Huber()
@@ -72,9 +69,9 @@ running_reward = 0
 episode_count = 0
 frame_count = 0
 # Number of frames to take random action and observe output
-epsilon_random_frames = 50000
+epsilon_random_frames = 10000
 # Number of frames for exploration
-epsilon_greedy_frames = 1000000.0
+epsilon_greedy_frames = 100000.0
 # Maximum replay length
 # Note: The Deepmind paper suggests 1000000 however this causes memory issues
 max_memory_length = 100000
@@ -84,41 +81,12 @@ update_after_actions = 4
 update_target_network = 10000
 
 
-reward_max_vel_weight = 0.0     # 1.0
-reward_min_vel_weight = 0.0     # 0.25
-reward_max_dist_weight = 1.0    # 1.0
-reward_min_dist_weight = 0.0    # 0.125
-shaped_reward_scale = 20.0
-
-max_vel = None
-min_vel = None
-max_dist = None
-min_dist = None
-
 pos_mean: List[float] = []
 pos_std: List[float] = []
 speed_mean: List[float] = []
 speed_std: List[float] = []
 reward_mean: List[float] = []
 reward_std: List[float] = []
-
-
-def get_step_shaped_reward(observation) -> float:
-    max_vel_reward = (observation[1] + 0.5) * reward_max_vel_weight
-    min_vel_reward = -(observation[1] + 0.5) * reward_min_vel_weight
-    max_dist_reward = observation[0] * reward_max_dist_weight
-    min_dist_reward = observation[0] * reward_min_dist_weight
-    shaped_reward = np.max([max_vel_reward, min_vel_reward]) + np.max([max_dist_reward, min_dist_reward])
-    return shaped_reward * shaped_reward_scale
-
-
-def get_step_diff_shaped_reward(observation) -> float:
-    max_vel_reward = np.max([0, observation[1] - max_vel]) * reward_max_vel_weight
-    min_vel_reward = np.min([0, observation[1] - min_vel]) * -reward_min_vel_weight
-    max_dist_reward = np.max([0, observation[0] - max_dist]) * reward_max_dist_weight
-    min_dist_reward = np.min([0, observation[0] - min_dist]) * -reward_min_dist_weight
-    shaped_reward = np.max([max_vel_reward, min_vel_reward]) + np.max([max_dist_reward, min_dist_reward])
-    return shaped_reward * shaped_reward_scale
 
 
 last_episode_reward = 0
@@ -140,7 +108,7 @@ while True:  # Run until solved
         # Use epsilon-greedy for exploration
         if frame_count < epsilon_random_frames or epsilon > np.random.rand(1)[0]:
             # Take random action
-            action_index = np.random.choice(num_actions)
+            action = np.random.choice(num_actions)
         else:
             # Predict action Q-values
             # From environment state
@@ -148,34 +116,20 @@ while True:  # Run until solved
             state_tensor = tf.expand_dims(state_tensor, 0)
             action_probs = model(state_tensor, training=False)
             # Take best action
-            action_index = tf.argmax(action_probs[0]).numpy()
+            action = tf.argmax(action_probs[0]).numpy()
 
         # Decay probability of taking random action
         epsilon -= epsilon_interval / epsilon_greedy_frames
         epsilon = max(epsilon, epsilon_min)
 
         # Apply the sampled action in our environment
-        state_next, reward, done, _ = env.step([actions[action_index]])
+        state_next, reward, done, _ = env.step(action)
         state_next = np.array(state_next)
 
         episode_reward += reward
 
-        if timestep > 1:
-            # reward += get_step_shaped_reward(state)
-            reward += get_step_diff_shaped_reward(state)
-
-            max_vel = np.max([max_vel, state[1]])
-            min_vel = np.min([min_vel, state[1]])
-            max_dist = np.max([max_dist, state[0]])
-            min_dist = np.min([min_dist, state[0]])
-        else:
-            max_vel = state[1]
-            min_vel = state[1]
-            max_dist = state[0]
-            min_dist = state[0]
-
         # Save actions and states in replay buffer
-        action_history.append(action_index)
+        action_history.append(action)
         state_history.append(state)
         state_next_history.append(state_next)
         done_history.append(done)
