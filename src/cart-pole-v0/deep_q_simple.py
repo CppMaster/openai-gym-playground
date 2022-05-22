@@ -6,8 +6,10 @@ from keras.layers import Dense, LeakyReLU
 from tensorflow import keras
 
 
+# load the environment
 env = gym.make('CartPole-v0')
 
+# tensorboard logs
 summary_writer = tf.summary.create_file_writer(f"temp/tf-summary-workshop")
 
 # env parameters
@@ -16,7 +18,7 @@ max_steps_per_episode = 200
 # discount factor
 gamma = 0.99
 # greedy parameter
-epsilon = 1.0  # Epsilon greedy parameter
+epsilon = 1.0
 epsilon_min = 0.1
 epsilon_max = 1.0
 epsilon_decline_over_n_episodes = 10000
@@ -28,12 +30,11 @@ n_episodes_to_learn = 1
 
 batch_size = 8
 
-
 # game over punish
 end_of_episode_reward = 10.
 
 
-# a simple model
+# a simple model architecture
 def get_model():
     return Sequential([
         Dense(units=4, input_dim=env.observation_space.shape[0]),
@@ -42,13 +43,13 @@ def get_model():
     ])
 
 
-# trained model
-model = get_model()
-# target model
-model_target = get_model()
+# models
+trained_model = get_model()
+future_rewards_model = get_model()
 optimizer = keras.optimizers.Adam(learning_rate=0.01, clipnorm=1.0)
 loss_function = keras.losses.Huber()
 
+# score parameters
 n_episodes_to_score = 10
 score_every_n_episodes = 100
 render_scoring = False
@@ -61,8 +62,10 @@ rewards_history = []
 done_history = []
 max_memory_length = 1000
 
-# run infinitely
+render_training = False
+
 episode = 0
+# run infinitely
 while True:
 
     # start the episode
@@ -73,16 +76,16 @@ while True:
     for timestep in range(max_steps_per_episode):
 
         # render current step
-        # env.render()
+        if render_training:
+            env.render()
 
-        # create an input for the model
-        state_tensor = tf.convert_to_tensor(state)
-        state_tensor = tf.expand_dims(state_tensor, 0)
-
-        # choose a random action
+        # exploit or explore
         if np.random.random() > epsilon:
+            # create an input for the model
+            state_tensor = tf.convert_to_tensor(state)
+            state_tensor = tf.expand_dims(state_tensor, 0)
             # inference the model
-            action_probs = model(state_tensor, training=False)
+            action_probs = trained_model(state_tensor, training=False)
             # Take best action
             action = tf.argmax(action_probs[0]).numpy()
         else:
@@ -103,6 +106,7 @@ while True:
         rewards_history.append(reward)
         state = state_next
 
+        # game over
         if done:
             break
 
@@ -125,10 +129,10 @@ while True:
         done_sample = tf.convert_to_tensor([float(done_history[i]) for i in indices])
 
         # get estimated reward for the next step
-        future_rewards = model_target.predict(state_next_sample)
+        future_rewards = future_rewards_model.predict(state_next_sample)
         # apply discounted future rewards
         updated_reward = rewards_sample + gamma * tf.reduce_max(future_rewards, axis=1)
-        # if end of episode then no future rewards. The reward is -1 instead, so the agent avoids end of the episode
+        # if end of episode then no future rewards. The reward is negative instead, so the agent avoids it
         updated_reward = updated_reward * (1 - done_sample) - done_sample * end_of_episode_reward
 
         # create one hot vectors for actions ([1, 0] or [0, 1]), so loss is only calculated for taken action
@@ -138,7 +142,7 @@ while True:
         with tf.GradientTape() as tape:
 
             # inference the model
-            action_values = model(state_sample)
+            action_values = trained_model(state_sample)
 
             # calculate loss only for taken action
             masked_action_value = tf.reduce_sum(tf.multiply(action_values, masks), axis=1)
@@ -148,8 +152,8 @@ while True:
                 tf.summary.scalar("Loss", loss)
 
         # backpropagation
-        grads = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+        grads = tape.gradient(loss, trained_model.trainable_variables)
+        optimizer.apply_gradients(zip(grads, trained_model.trainable_variables))
 
     # remove old samples from replay experience
     action_history = action_history[-max_memory_length:]
@@ -167,7 +171,7 @@ while True:
     # update target network
     if episode % n_episodes_to_update_network == 0:
         print("Updating target network")
-        model_target.set_weights(model.get_weights())
+        future_rewards_model.set_weights(trained_model.get_weights())
 
     # score model
     if episode % score_every_n_episodes == 0:
@@ -180,7 +184,7 @@ while True:
                     env.render()
                 state_tensor = tf.convert_to_tensor(state)
                 state_tensor = tf.expand_dims(state_tensor, 0)
-                action_values = model(state_tensor, training=False)
+                action_values = trained_model(state_tensor, training=False)
                 action = tf.argmax(action_values[0]).numpy()
                 state_next, reward, done, _ = env.step(action)
                 episode_reward += reward
