@@ -23,7 +23,7 @@ class Agent:
 
 
 # path of the model (None for random actions)
-# model_path = "temp/cartpole-deep-q.h5"
+# model_path = "runs_for_workshop/cartpole-deep-q.h5"
 model_path = None
 if model_path:
     agent = Agent(model_path)
