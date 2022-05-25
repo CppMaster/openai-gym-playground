@@ -85,9 +85,9 @@ while True:
             state_tensor = tf.convert_to_tensor(state)
             state_tensor = tf.expand_dims(state_tensor, 0)
             # inference the model
-            action_probs = trained_model(state_tensor, training=False)
+            action_values = trained_model(state_tensor, training=False)
             # Take best action
-            action = tf.argmax(action_probs[0]).numpy()
+            action = tf.argmax(action_values[0]).numpy()
         else:
             action = env.action_space.sample()
 

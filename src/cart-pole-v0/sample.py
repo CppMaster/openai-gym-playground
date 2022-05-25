@@ -18,8 +18,8 @@ class Agent:
     def policy(self, _state) -> int:
         state_tensor = tf.convert_to_tensor(_state)
         state_tensor = tf.expand_dims(state_tensor, 0)
-        action_probs = self.model(state_tensor, training=False)
-        return tf.argmax(action_probs[0]).numpy()
+        action_values = self.model(state_tensor, training=False)
+        return tf.argmax(action_values[0]).numpy()
 
 
 # path of the model (None for random actions)
