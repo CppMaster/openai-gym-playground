@@ -12,7 +12,7 @@ import seaborn as sns
 
 set_memory_growth()
 
-run_suffix = 6
+run_suffix = "no-reward-shape_n-actions-5"
 
 # Configuration paramaters for the whole setup
 seed = 42
@@ -29,7 +29,7 @@ max_steps_per_episode = 200
 env = gym.make('MountainCarContinuous-v0')
 env.seed(seed)
 
-num_actions = 21
+num_actions = 5
 actions = np.linspace(-1.0, 1.0, num=num_actions)
 
 summary_writer = tf.summary.create_file_writer(f"temp/tf-summary_{run_suffix}")
@@ -88,7 +88,7 @@ reward_max_vel_weight = 0.0     # 1.0
 reward_min_vel_weight = 0.0     # 0.25
 reward_max_dist_weight = 1.0    # 1.0
 reward_min_dist_weight = 0.0    # 0.125
-shaped_reward_scale = 20.0
+shaped_reward_scale = 0.0
 
 max_vel = None
 min_vel = None
@@ -202,7 +202,7 @@ while True:  # Run until solved
 
             # Build the updated Q-values for the sampled future states
             # Use the target model for stability
-            future_rewards = model_target.predict(state_next_sample)
+            future_rewards = model_target.predict(state_next_sample, verbose=0)
             # Q value = reward + discount factor * expected future reward
             updated_q_values = rewards_sample + gamma * tf.reduce_max(
                 future_rewards, axis=1
@@ -252,30 +252,6 @@ while True:  # Run until solved
                 tf.summary.scalar("speed_mean", speed_mean[-1])
                 tf.summary.scalar("reward_std", reward_std[-1])
                 tf.summary.scalar("reward_mean", reward_mean[-1])
-
-            # fig = plt.figure()
-            # plt.subplot(2, 3, 1)
-            # plt.title("pos_std")
-            # plt.plot(pos_std, label="pos_std")
-            # plt.subplot(2, 3, 4)
-            # plt.title("pos_mean")
-            # plt.plot(pos_mean, label="pos_mean")
-            # plt.subplot(2, 3, 2)
-            # plt.title("speed_std")
-            # plt.plot(speed_std, label="speed_std")
-            # plt.subplot(2, 3, 5)
-            # plt.title("speed_mean")
-            # plt.plot(speed_mean, label="speed_mean")
-            # plt.subplot(2, 3, 3)
-            # plt.title("reward_std")
-            # plt.plot(reward_std, label="reward_std")
-            # plt.subplot(2, 3, 6)
-            # plt.title("reward_mean")
-            # plt.plot(reward_mean, label="reward_mean")
-            # plt.close(fig)
-            # plt.savefig("plot.png")
-
-
 
         # Limit the state and reward history
         if len(rewards_history) > max_memory_length:
