@@ -42,7 +42,10 @@ class HerEnv(gym.GoalEnv):
         self.env.render(mode)
 
     def compute_reward(self, achieved_goal: np.ndarray, desired_goal: np.ndarray, info):
-        return (np.abs(achieved_goal - desired_goal) <= self.epsilon) * 1.0
+        reward = (np.abs(achieved_goal - desired_goal) <= self.epsilon).flatten() * 1.0
+        if reward.size == 1:
+            reward = reward[0]
+        return reward
 
     def transform_observation(self, obs) -> Dict:
         return {
