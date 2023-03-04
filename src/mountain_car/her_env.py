@@ -6,8 +6,9 @@ from gym.envs.classic_control import MountainCarEnv
 
 
 class HerEnv(gym.GoalEnv):
+    neutral_position = np.array([-0.5])
 
-    def __init__(self, random_goal: bool, epsilon: float = 1-4):
+    def __init__(self, random_goal: bool):
         self.random_goal = random_goal
         self.env: MountainCarEnv = gym.make('MountainCar-v0')
         self.action_space = self.env.action_space
@@ -18,14 +19,13 @@ class HerEnv(gym.GoalEnv):
             "desired_goal": gym.spaces.Box(low=self.env.min_position, high=self.env.max_position, shape=(1,))
         })
         self.desired_goal = self.get_new_goal()
-        self.epsilon = epsilon
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
         transformed_obs = self.transform_observation(obs)
         transformed_reward = self.compute_reward(transformed_obs["achieved_goal"], transformed_obs["desired_goal"],
                                                  info)
-        return self.transform_observation(obs), transformed_reward, done, info
+        return self.transform_observation(obs), transformed_reward, done or transformed_reward > 0.0, info
 
     def reset(self):
         self.desired_goal = self.get_new_goal()
@@ -42,7 +42,10 @@ class HerEnv(gym.GoalEnv):
         self.env.render(mode)
 
     def compute_reward(self, achieved_goal: np.ndarray, desired_goal: np.ndarray, info):
-        reward = (np.abs(achieved_goal - desired_goal) <= self.epsilon).flatten() * 1.0
+        reward = np.logical_or(
+            np.logical_and(desired_goal < self.neutral_position, achieved_goal <= desired_goal),
+            np.logical_and(desired_goal > self.neutral_position, achieved_goal >= desired_goal)
+        ).flatten() * 1.0
         if reward.size == 1:
             reward = reward[0]
         return reward
